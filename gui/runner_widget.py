@@ -176,6 +176,24 @@ class RunnerWidget(QWidget):
         self.current_item_id = item_id
         self.target_label.setText(f"🎯 Ausführungsziel: {mode.upper()} -> '{item_id}'")
 
+    def refresh_datasets(self):
+        """Refreshes the dataset dropdown list with available CSV datasets."""
+        current_data = self.dataset_combo.currentData()
+        self.dataset_combo.blockSignals(True)
+        self.dataset_combo.clear()
+
+        self.dataset_combo.addItem("🚫 Keiner (Einzelausführung)", None)
+
+        datasets = self.pm.get_datasets()
+        selected_idx = 0
+        for idx, d in enumerate(datasets, start=1):
+            self.dataset_combo.addItem(f"📊 {d['name']} ({d['filename']})", d["id"])
+            if d["id"] == current_data:
+                selected_idx = idx
+
+        self.dataset_combo.setCurrentIndex(selected_idx)
+        self.dataset_combo.blockSignals(False)
+
     def start_execution(self):
         if not self.current_mode or not self.current_item_id:
             QMessageBox.warning(self, "Warnung", "Bitte wähle zuerst eine Routine, Gruppe oder einen Test im Explorer aus.")

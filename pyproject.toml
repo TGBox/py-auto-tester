@@ -1,0 +1,27 @@
+[project]
+name = "py-auto-tester"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Daniel Rösch", email = "droesch91@gmail.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "PySide6>=6.6.0",
+    "playwright>=1.40.0",
+    "pytest>=8.0.0",
+    "pytest-playwright>=0.4.0",
+]
+
+[project.scripts]
+py-auto-tester = "py_auto_tester:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["test_app.py"]
+norecursedirs = ["scratch", "project_data", ".venv"]
+
