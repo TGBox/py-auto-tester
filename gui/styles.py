@@ -142,8 +142,8 @@ QTabBar::tab:hover:!selected {
     color: #E2E8F0;
 }
 
-/* LineEdit & TextEdit */
-QLineEdit, QTextEdit, QPlainTextEdit {
+/* LineEdit & TextEdit & ComboBox */
+QLineEdit, QTextEdit, QPlainTextEdit, QComboBox {
     background-color: #0F172A;
     border: 1px solid #334155;
     border-radius: 6px;
@@ -152,9 +152,24 @@ QLineEdit, QTextEdit, QPlainTextEdit {
     selection-background-color: #2563EB;
 }
 
-QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QComboBox:focus {
     border: 1px solid #38BDF8;
 }
+
+QComboBox::drop-down {
+    border: 0px;
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 25px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #1E293B;
+    border: 1px solid #334155;
+    selection-background-color: #2563EB;
+    color: #F8FAFC;
+}
+
 
 /* Splitter */
 QSplitter::handle {

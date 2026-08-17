@@ -1,7 +1,7 @@
 import os
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QCheckBox, QProgressBar, QTextEdit, QTableWidget, QTableWidgetItem,
+    QCheckBox, QComboBox, QProgressBar, QTextEdit, QTableWidget, QTableWidgetItem,
     QHeaderView, QSplitter, QFrame, QMessageBox
 )
 from PySide6.QtGui import QColor, QPixmap
@@ -37,9 +37,28 @@ class RunnerWidget(QWidget):
 
         c_layout.addStretch()
 
+        # Speed Dropdown
+        speed_label = QLabel("⏱️ Tempo:")
+        speed_label.setStyleSheet("font-weight: bold;")
+        c_layout.addWidget(speed_label)
+
+        self.speed_combo = QComboBox()
+        self.speed_combo.addItem("⚡ So schnell wie möglich", "fastest")
+        self.speed_combo.addItem("🚗 Normal (300ms)", "normal")
+        self.speed_combo.addItem("🐢 Langsam (1000ms)", "slow")
+        self.speed_combo.addItem("🐾 Schritt für Schritt (2500ms)", "step")
+        self.speed_combo.setCurrentIndex(1) # Default to Normal
+        self.speed_combo.setToolTip("Bestimmt die Verzögerung zwischen einzelnen Playwright-Aktionen (slow_mo)")
+        c_layout.addWidget(self.speed_combo)
+
         self.headed_cb = QCheckBox("Browser sichtbar (Headed)")
         self.headed_cb.setChecked(True)
         c_layout.addWidget(self.headed_cb)
+
+        self.auto_close_cb = QCheckBox("Browser am Ende schließen")
+        self.auto_close_cb.setChecked(True)
+        self.auto_close_cb.setToolTip("Schließt das Browserfenster automatisch nach Abschluss des Tests")
+        c_layout.addWidget(self.auto_close_cb)
 
         self.run_btn = QPushButton("▶ Ausführen")
         self.run_btn.setObjectName("runButton")
@@ -127,7 +146,9 @@ class RunnerWidget(QWidget):
 
         # Start QThread Worker
         headed = self.headed_cb.isChecked()
-        self.worker = ExecutionEngineWorker(self.pm, self.current_mode, self.current_item_id, headed=headed)
+        auto_close = self.auto_close_cb.isChecked()
+        speed_mode = self.speed_combo.currentData() or "normal"
+        self.worker = ExecutionEngineWorker(self.pm, self.current_mode, self.current_item_id, headed=headed, speed_mode=speed_mode, auto_close=auto_close)
         self.worker.log_signal.connect(self.append_log)
         self.worker.step_progress_signal.connect(self.update_progress)
         self.worker.step_status_signal.connect(self.update_step_status)

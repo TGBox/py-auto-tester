@@ -20,19 +20,31 @@ class ExecutionEngineWorker(QThread):
     finished_signal = Signal(bool, str) # success, summary
     screenshot_signal = Signal(str) # screenshot path on failure
 
-    def __init__(self, project_manager: ProjectManager, mode: str, item_id: str, headed: bool = True):
+    def __init__(self, project_manager: ProjectManager, mode: str, item_id: str, headed: bool = True, speed_mode: str = "fastest", auto_close: bool = True):
         super().__init__()
         self.pm = project_manager
         self.mode = mode # 'routine', 'group', or 'test'
         self.item_id = item_id
         self.headed = headed
+        self.speed_mode = speed_mode # 'fastest', 'normal', 'slow', 'step'
+        self.auto_close = auto_close
         self._is_cancelled = False
+
+    def get_slow_mo_ms(self) -> int:
+        mapping = {
+            "fastest": 0,
+            "normal": 300,
+            "slow": 1000,
+            "step": 2500
+        }
+        return mapping.get(self.speed_mode, 0)
 
     def cancel(self):
         self._is_cancelled = True
 
     def run(self):
-        self.log_signal.emit(f"=== Starte Ausführung ({self.mode.upper()}: {self.item_id}) ===")
+        slow_mo_ms = self.get_slow_mo_ms()
+        self.log_signal.emit(f"=== Starte Ausführung ({self.mode.upper()}: {self.item_id}) | Tempo: {self.speed_mode} ({slow_mo_ms}ms) | Auto-Close: {self.auto_close} ===")
         start_time = time.time()
         
         # Load variables
@@ -78,21 +90,27 @@ class ExecutionEngineWorker(QThread):
         passed_count = 0
         failed_count = 0
 
-        try:
-            with sync_playwright() as p:
-                browser: Optional[Browser] = None
-                context: Optional[BrowserContext] = None
-                page: Optional[Page] = None
+        all_browsers: List[Browser] = []
+        all_contexts: List[BrowserContext] = []
 
-                def create_session():
-                    b = p.chromium.launch(headless=not self.headed)
-                    c = b.new_context()
-                    pg = c.new_page()
-                    return b, c, pg
+        with sync_playwright() as p:
+            current_browser: Optional[Browser] = None
+            current_context: Optional[BrowserContext] = None
+            current_page: Optional[Page] = None
 
+            def create_session():
+                b = p.chromium.launch(headless=not self.headed, slow_mo=slow_mo_ms)
+                c = b.new_context()
+                pg = c.new_page()
+                pg.set_default_timeout(15000) # 15 second action timeout
+                all_browsers.append(b)
+                all_contexts.append(c)
+                return b, c, pg
+
+            try:
                 if not isolated_session:
                     self.log_signal.emit("[INFO] Starte shared Browser Context...")
-                    browser, context, page = create_session()
+                    current_browser, current_context, current_page = create_session()
 
                 for idx, item in enumerate(routine_sequence, start=1):
                     if self._is_cancelled:
@@ -106,7 +124,7 @@ class ExecutionEngineWorker(QThread):
 
                     if isolated_session:
                         self.log_signal.emit(f"[{rid}] Starte isolierte Browser-Session...")
-                        browser, context, page = create_session()
+                        current_browser, current_context, current_page = create_session()
 
                     # Load routine code
                     code_content = self.pm.get_routine_code(rid)
@@ -119,7 +137,7 @@ class ExecutionEngineWorker(QThread):
 
                     # Execute python snippet
                     step_start = time.time()
-                    success, error_msg = self._execute_snippet(code_content, page, variables)
+                    success, error_msg = self._execute_snippet(code_content, current_page, variables)
                     duration = time.time() - step_start
 
                     if success:
@@ -132,38 +150,50 @@ class ExecutionEngineWorker(QThread):
                         self.step_status_signal.emit(rid, "FAIL", error_msg)
 
                         # Take error screenshot
-                        if page:
+                        if current_page and not current_page.is_closed():
                             try:
                                 screenshot_dir = os.path.join(tempfile.gettempdir(), "py_auto_tester_screenshots")
                                 os.makedirs(screenshot_dir, exist_ok=True)
                                 shot_path = os.path.join(screenshot_dir, f"error_{rid}_{int(time.time())}.png")
-                                page.screenshot(path=shot_path, full_page=True)
+                                current_page.screenshot(path=shot_path, full_page=True)
                                 self.screenshot_signal.emit(shot_path)
                                 self.log_signal.emit(f"[SCREENSHOT] Gespeichert unter: {shot_path}")
                             except Exception as se:
                                 self.log_signal.emit(f"[WARN] Screenshot konnte nicht erstellt werden: {str(se)}")
 
-                    if isolated_session:
+                    if isolated_session and self.auto_close:
                         try:
-                            if context: context.close()
-                            if browser: browser.close()
+                            if current_page and not current_page.is_closed(): current_page.close()
+                            if current_context: current_context.close()
+                            if current_browser: current_browser.close()
                         except Exception:
                             pass
 
                     self.step_progress_signal.emit(idx, total_steps)
 
-                if not isolated_session:
-                    try:
-                        if context: context.close()
-                        if browser: browser.close()
-                    except Exception:
-                        pass
-
-        except Exception as e:
-            tb = traceback.format_exc()
-            self.log_signal.emit(f"[SYSTEM FEHLER] Unerwarteter Playwright Fehler:\n{tb}")
-            self.finished_signal.emit(False, f"Systemfehler: {str(e)}")
-            return
+            except Exception as e:
+                tb = traceback.format_exc()
+                self.log_signal.emit(f"[SYSTEM FEHLER] Unerwarteter Playwright Fehler:\n{tb}")
+                self.finished_signal.emit(False, f"Systemfehler: {str(e)}")
+                return
+            finally:
+                if self.auto_close:
+                    self.log_signal.emit("[INFO] Schließe alle Browserfenster...")
+                    for ctx in all_contexts:
+                        try:
+                            for pg in ctx.pages:
+                                if not pg.is_closed():
+                                    pg.close()
+                            ctx.close()
+                        except Exception:
+                            pass
+                    for b in all_browsers:
+                        try:
+                            b.close()
+                        except Exception:
+                            pass
+                else:
+                    self.log_signal.emit("[INFO] Browser bleibt nach Ausführung geöffnet.")
 
         elapsed = time.time() - start_time
         summary = f"Ausführung beendet in {elapsed:.2f}s | Erfolgreich: {passed_count} | Fehlgeschlagen: {failed_count}"

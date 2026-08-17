@@ -32,3 +32,18 @@ def test_project_manager_crud(temp_pm):
     # Delete
     temp_pm.delete_routine("test_rec")
     assert len(temp_pm.get_routines()) == 0
+
+def test_execution_engine_speed_modes(temp_pm):
+    from core.execution_engine import ExecutionEngineWorker
+    worker_fast = ExecutionEngineWorker(temp_pm, "routine", "test_rec", speed_mode="fastest")
+    assert worker_fast.get_slow_mo_ms() == 0
+
+    worker_normal = ExecutionEngineWorker(temp_pm, "routine", "test_rec", speed_mode="normal")
+    assert worker_normal.get_slow_mo_ms() == 300
+
+    worker_slow = ExecutionEngineWorker(temp_pm, "routine", "test_rec", speed_mode="slow")
+    assert worker_slow.get_slow_mo_ms() == 1000
+
+    worker_step = ExecutionEngineWorker(temp_pm, "routine", "test_rec", speed_mode="step")
+    assert worker_step.get_slow_mo_ms() == 2500
+
