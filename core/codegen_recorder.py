@@ -8,7 +8,7 @@ class CodegenRecorder:
     """Manages spawning Playwright Codegen and formatting generated code."""
 
     @staticmethod
-    def launch_codegen(url: str = "https://google.com") -> Tuple[Optional[str], str]:
+    def launch_codegen(url: str = "https://google.com", browser: str = "chromium", device: str = None) -> Tuple[Optional[str], str]:
         """
         Launches playwright codegen writing to a temporary file.
         Returns (recorded_code_snippet, error_message).
@@ -21,6 +21,18 @@ class CodegenRecorder:
                 pass
 
         cmd = ["playwright", "codegen", "-o", temp_file]
+        if browser and browser in ["firefox", "webkit"]:
+            cmd.extend(["--browser", browser])
+
+        if device:
+            dev_map = {
+                "iphone_14": "iPhone 13",
+                "pixel_7": "Pixel 5",
+                "ipad_air": "iPad Air"
+            }
+            if device in dev_map:
+                cmd.extend(["--device", dev_map[device]])
+
         if url and url.strip():
             cmd.append(url.strip())
 

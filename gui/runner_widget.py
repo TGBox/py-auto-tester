@@ -37,6 +37,34 @@ class RunnerWidget(QWidget):
 
         c_layout.addStretch()
 
+        # Browser Selection Dropdown
+        browser_label = QLabel("🌐 Browser:")
+        browser_label.setStyleSheet("font-weight: bold;")
+        c_layout.addWidget(browser_label)
+
+        self.browser_combo = QComboBox()
+        self.browser_combo.addItem("🌐 Chromium (Chrome/Edge)", "chromium")
+        self.browser_combo.addItem("🦊 Firefox", "firefox")
+        self.browser_combo.addItem("🧩 WebKit (Safari)", "webkit")
+        self.browser_combo.setCurrentIndex(0)
+        self.browser_combo.setToolTip("Wähle die Browser-Engine")
+        c_layout.addWidget(self.browser_combo)
+
+        # Device / Emulation Dropdown
+        device_label = QLabel("📱 Gerät:")
+        device_label.setStyleSheet("font-weight: bold;")
+        c_layout.addWidget(device_label)
+
+        self.device_combo = QComboBox()
+        self.device_combo.addItem("🖥️ Desktop 1080p (1920x1080)", "desktop_1080p")
+        self.device_combo.addItem("🖥️ Desktop 768p (1366x768)", "desktop_768p")
+        self.device_combo.addItem("📱 iPhone 14 (Mobile Touch)", "iphone_14")
+        self.device_combo.addItem("📱 Pixel 7 (Mobile Touch)", "pixel_7")
+        self.device_combo.addItem("📱 iPad Air (Tablet)", "ipad_air")
+        self.device_combo.setCurrentIndex(0)
+        self.device_combo.setToolTip("Wähle das Geräte- und Viewport-Profil für die Emulation")
+        c_layout.addWidget(self.device_combo)
+
         # Speed Dropdown
         speed_label = QLabel("⏱️ Tempo:")
         speed_label.setStyleSheet("font-weight: bold;")
@@ -148,7 +176,14 @@ class RunnerWidget(QWidget):
         headed = self.headed_cb.isChecked()
         auto_close = self.auto_close_cb.isChecked()
         speed_mode = self.speed_combo.currentData() or "normal"
-        self.worker = ExecutionEngineWorker(self.pm, self.current_mode, self.current_item_id, headed=headed, speed_mode=speed_mode, auto_close=auto_close)
+        browser_engine = self.browser_combo.currentData() or "chromium"
+        device_profile = self.device_combo.currentData() or "desktop_1080p"
+
+        self.worker = ExecutionEngineWorker(
+            self.pm, self.current_mode, self.current_item_id,
+            headed=headed, speed_mode=speed_mode, auto_close=auto_close,
+            browser_engine=browser_engine, device_profile=device_profile
+        )
         self.worker.log_signal.connect(self.append_log)
         self.worker.step_progress_signal.connect(self.update_progress)
         self.worker.step_status_signal.connect(self.update_step_status)

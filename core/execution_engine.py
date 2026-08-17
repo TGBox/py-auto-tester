@@ -20,7 +20,7 @@ class ExecutionEngineWorker(QThread):
     finished_signal = Signal(bool, str) # success, summary
     screenshot_signal = Signal(str) # screenshot path on failure
 
-    def __init__(self, project_manager: ProjectManager, mode: str, item_id: str, headed: bool = True, speed_mode: str = "fastest", auto_close: bool = True):
+    def __init__(self, project_manager: ProjectManager, mode: str, item_id: str, headed: bool = True, speed_mode: str = "fastest", auto_close: bool = True, browser_engine: str = "chromium", device_profile: str = "desktop_1080p"):
         super().__init__()
         self.pm = project_manager
         self.mode = mode # 'routine', 'group', or 'test'
@@ -28,6 +28,8 @@ class ExecutionEngineWorker(QThread):
         self.headed = headed
         self.speed_mode = speed_mode # 'fastest', 'normal', 'slow', 'step'
         self.auto_close = auto_close
+        self.browser_engine = browser_engine.lower() # 'chromium', 'firefox', 'webkit'
+        self.device_profile = device_profile # 'desktop_1080p', 'iphone_14', etc.
         self._is_cancelled = False
 
     def get_slow_mo_ms(self) -> int:
@@ -39,12 +41,38 @@ class ExecutionEngineWorker(QThread):
         }
         return mapping.get(self.speed_mode, 0)
 
+    @staticmethod
+    def get_context_options(profile: str) -> dict:
+        profiles = {
+            "desktop_1080p": {"viewport": {"width": 1920, "height": 1080}},
+            "desktop_768p": {"viewport": {"width": 1366, "height": 768}},
+            "iphone_14": {
+                "viewport": {"width": 390, "height": 844},
+                "is_mobile": True,
+                "has_touch": True,
+                "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
+            },
+            "pixel_7": {
+                "viewport": {"width": 412, "height": 915},
+                "is_mobile": True,
+                "has_touch": True,
+                "user_agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
+            },
+            "ipad_air": {
+                "viewport": {"width": 820, "height": 1180},
+                "is_mobile": True,
+                "has_touch": True
+            }
+        }
+        return profiles.get(profile, {"viewport": {"width": 1280, "height": 720}})
+
     def cancel(self):
         self._is_cancelled = True
 
     def run(self):
         slow_mo_ms = self.get_slow_mo_ms()
-        self.log_signal.emit(f"=== Starte Ausführung ({self.mode.upper()}: {self.item_id}) | Tempo: {self.speed_mode} ({slow_mo_ms}ms) | Auto-Close: {self.auto_close} ===")
+        ctx_opts = self.get_context_options(self.device_profile)
+        self.log_signal.emit(f"=== Starte Ausführung ({self.mode.upper()}: {self.item_id}) | Browser: {self.browser_engine.upper()} | Gerät: {self.device_profile} | Tempo: {self.speed_mode} ({slow_mo_ms}ms) ===")
         start_time = time.time()
         
         # Load variables
@@ -67,6 +95,13 @@ class ExecutionEngineWorker(QThread):
             test = next((t for t in tests if t["id"] == self.item_id), None)
             if test:
                 isolated_session = test.get("isolated_session", False)
+                # Test overrides if present
+                if test.get("browser_engine"):
+                    self.browser_engine = test["browser_engine"].lower()
+                if test.get("device_profile"):
+                    self.device_profile = test["device_profile"]
+                    ctx_opts = self.get_context_options(self.device_profile)
+
                 groups_dict = {g["id"]: g for g in self.pm.get_groups()}
                 
                 for item in test.get("item_ids", []):
@@ -98,9 +133,12 @@ class ExecutionEngineWorker(QThread):
             current_context: Optional[BrowserContext] = None
             current_page: Optional[Page] = None
 
+            # Select Playwright engine
+            engine = getattr(p, self.browser_engine, p.chromium)
+
             def create_session():
-                b = p.chromium.launch(headless=not self.headed, slow_mo=slow_mo_ms)
-                c = b.new_context()
+                b = engine.launch(headless=not self.headed, slow_mo=slow_mo_ms)
+                c = b.new_context(**ctx_opts)
                 pg = c.new_page()
                 pg.set_default_timeout(15000) # 15 second action timeout
                 all_browsers.append(b)

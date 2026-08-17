@@ -161,8 +161,11 @@ class MainWindow(QMainWindow):
             "3. Der Code wird automatisch bereinigt & als Routine gespeichert."
         )
 
-        # 3. Launch Codegen
-        snippet, err_msg = CodegenRecorder.launch_codegen(url.strip())
+        # 3. Launch Codegen using selected browser and device profile
+        browser = self.runner_widget.browser_combo.currentData() or "chromium"
+        device = self.runner_widget.device_combo.currentData() or "desktop_1080p"
+
+        snippet, err_msg = CodegenRecorder.launch_codegen(url.strip(), browser=browser, device=device)
         if err_msg:
             QMessageBox.warning(self, "Aufnahme Fehler/Abbruch", err_msg)
             return

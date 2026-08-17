@@ -47,3 +47,19 @@ def test_execution_engine_speed_modes(temp_pm):
     worker_step = ExecutionEngineWorker(temp_pm, "routine", "test_rec", speed_mode="step")
     assert worker_step.get_slow_mo_ms() == 2500
 
+def test_execution_engine_browser_and_device_profiles(temp_pm):
+    from core.execution_engine import ExecutionEngineWorker
+    
+    worker_ff = ExecutionEngineWorker(temp_pm, "routine", "test_rec", browser_engine="firefox", device_profile="iphone_14")
+    assert worker_ff.browser_engine == "firefox"
+    assert worker_ff.device_profile == "iphone_14"
+
+    opts = ExecutionEngineWorker.get_context_options("iphone_14")
+    assert opts["viewport"] == {"width": 390, "height": 844}
+    assert opts["is_mobile"] is True
+    assert opts["has_touch"] is True
+
+    opts_desk = ExecutionEngineWorker.get_context_options("desktop_1080p")
+    assert opts_desk["viewport"] == {"width": 1920, "height": 1080}
+
+
