@@ -123,6 +123,9 @@ class MainWindow(QMainWindow):
         vars_act = file_menu.addAction("⚙️ Variablen Verwalten")
         vars_act.triggered.connect(self.open_variables_dialog)
 
+        rep_act = file_menu.addAction("📂 Berichte-Ordner öffnen")
+        rep_act.triggered.connect(self.open_reports_folder)
+
         file_menu.addSeparator()
         exit_act = file_menu.addAction("Beenden")
         exit_act.triggered.connect(self.close)
@@ -200,6 +203,15 @@ class MainWindow(QMainWindow):
     def open_variables_dialog(self):
         dlg = VariablesDialog(self, self.pm)
         dlg.exec_()
+
+    def open_reports_folder(self):
+        reports_dir = self.pm.reports_dir
+        if os.path.exists(reports_dir):
+            if sys.platform == "win32":
+                os.startfile(reports_dir)
+            else:
+                import subprocess
+                subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", reports_dir])
 
     def show_about_dialog(self):
         QMessageBox.about(

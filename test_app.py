@@ -82,5 +82,33 @@ def test_dataset_crud_and_worker_dataset_binding(temp_pm):
     worker = ExecutionEngineWorker(temp_pm, "routine", "test_rec", dataset_id="test_users")
     assert worker.dataset_id == "test_users"
 
+def test_report_generator(temp_pm):
+    from core.report_generator import ReportGenerator
+
+    report_path = ReportGenerator.generate(
+        target_name="demo_routine",
+        mode="routine",
+        browser_engine="chromium",
+        device_profile="desktop_1080p",
+        speed_mode="normal",
+        dataset_id=None,
+        total_duration=1.45,
+        passed_count=1,
+        failed_count=0,
+        step_results=[{"name": "demo_routine", "status": "PASS", "duration": 1.45, "error": "", "screenshot": ""}],
+        logs=["[INFO] Test pass"],
+        reports_dir=temp_pm.reports_dir
+    )
+
+    assert os.path.exists(report_path)
+    assert report_path.endswith(".html")
+
+    with open(report_path, "r", encoding="utf-8") as f:
+        content = f.read()
+        assert "Test-Report: demo_routine" in content
+        assert "GESAMTERFOLG" in content
+        assert "CHROMIUM" in content
+
+
 
 

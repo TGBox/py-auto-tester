@@ -10,6 +10,7 @@ class ProjectManager:
         self.root_dir = os.path.abspath(root_dir)
         self.routines_dir = os.path.join(self.root_dir, "routines")
         self.datasets_dir = os.path.join(self.root_dir, "datasets")
+        self.reports_dir = os.path.join(self.root_dir, "reports")
         self.groups_file = os.path.join(self.root_dir, "groups.json")
         self.tests_file = os.path.join(self.root_dir, "tests.json")
         self.variables_file = os.path.join(self.root_dir, "variables.json")
@@ -20,6 +21,7 @@ class ProjectManager:
         """Ensure directories and default JSON files exist."""
         os.makedirs(self.routines_dir, exist_ok=True)
         os.makedirs(self.datasets_dir, exist_ok=True)
+        os.makedirs(self.reports_dir, exist_ok=True)
         
         if not os.path.exists(self.groups_file):
             self._write_json(self.groups_file, [])

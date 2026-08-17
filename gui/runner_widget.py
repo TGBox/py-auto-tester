@@ -1,4 +1,5 @@
 import os
+import webbrowser
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QCheckBox, QComboBox, QProgressBar, QTextEdit, QTableWidget, QTableWidgetItem,
@@ -20,6 +21,7 @@ class RunnerWidget(QWidget):
         super().__init__()
         self.pm = project_manager
         self.worker = None
+        self.latest_report_path = None
         self.setup_ui()
 
     def setup_ui(self):
@@ -89,17 +91,6 @@ class RunnerWidget(QWidget):
         self.speed_combo.setToolTip("Bestimmt die Verzögerung zwischen einzelnen Playwright-Aktionen (slow_mo)")
         c_layout.addWidget(self.speed_combo)
 
-    def refresh_datasets(self):
-        self.dataset_combo.blockSignals(True)
-        self.dataset_combo.clear()
-        self.dataset_combo.addItem("Kein Datensatz (Standard)", None)
-
-        datasets = self.pm.get_datasets()
-        for d in datasets:
-            self.dataset_combo.addItem(f"📊 {d['name']}", d["id"])
-
-        self.dataset_combo.blockSignals(False)
-
         self.headed_cb = QCheckBox("Browser sichtbar (Headed)")
         self.headed_cb.setChecked(True)
         c_layout.addWidget(self.headed_cb)
@@ -119,6 +110,13 @@ class RunnerWidget(QWidget):
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self.stop_execution)
         c_layout.addWidget(self.stop_btn)
+
+        self.report_btn = QPushButton("🌐 Report Öffnen")
+        self.report_btn.setObjectName("accentButton")
+        self.report_btn.setEnabled(False)
+        self.report_btn.setToolTip("Öffnet den generierten HTML-Testbericht im Browser")
+        self.report_btn.clicked.connect(self.open_latest_report)
+        c_layout.addWidget(self.report_btn)
 
         layout.addWidget(ctrl_card)
 
@@ -261,8 +259,20 @@ class RunnerWidget(QWidget):
             scaled = pixmap.scaled(self.shot_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.shot_label.setPixmap(scaled)
 
-    def on_finished(self, success: bool, summary: str):
+    def on_finished(self, success: bool, summary: str, report_path: str = ""):
         self.run_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.progress_bar.setValue(100)
+        
+        if report_path and os.path.exists(report_path):
+            self.latest_report_path = report_path
+            self.report_btn.setEnabled(True)
+            self.append_log(f"[INFO] Testbericht verfügbar: {report_path}")
+
         self.execution_finished_signal.emit()
+
+    def open_latest_report(self):
+        if self.latest_report_path and os.path.exists(self.latest_report_path):
+            webbrowser.open(self.latest_report_path)
+        else:
+            QMessageBox.information(self, "Hinweis", "Noch kein Bericht verfügbar.")

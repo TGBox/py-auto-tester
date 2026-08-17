@@ -8,6 +8,7 @@ from PySide6.QtCore import QThread, Signal
 from playwright.sync_api import sync_playwright, Page, BrowserContext, Browser
 
 from core.project_manager import ProjectManager
+from core.report_generator import ReportGenerator
 
 class ExecutionEngineWorker(QThread):
     """
@@ -17,7 +18,7 @@ class ExecutionEngineWorker(QThread):
     log_signal = Signal(str)
     step_progress_signal = Signal(int, int) # current, total
     step_status_signal = Signal(str, str, str) # item_id, status ('RUNNING'/'PASS'/'FAIL'), error_msg
-    finished_signal = Signal(bool, str) # success, summary
+    finished_signal = Signal(bool, str, str) # success, summary, report_path
     screenshot_signal = Signal(str) # screenshot path on failure
 
     def __init__(self, project_manager: ProjectManager, mode: str, item_id: str, headed: bool = True, speed_mode: str = "fastest", auto_close: bool = True, browser_engine: str = "chromium", device_profile: str = "desktop_1080p", dataset_id: Optional[str] = None):
@@ -139,6 +140,13 @@ class ExecutionEngineWorker(QThread):
         failed_count = 0
         current_step_counter = 0
 
+        collected_logs: List[str] = []
+        collected_step_results: List[Dict[str, Any]] = []
+
+        def log_and_emit(msg: str):
+            collected_logs.append(msg)
+            self.log_signal.emit(msg)
+
         all_browsers: List[Browser] = []
         all_contexts: List[BrowserContext] = []
 
@@ -161,7 +169,7 @@ class ExecutionEngineWorker(QThread):
 
             try:
                 if not isolated_session:
-                    self.log_signal.emit("[INFO] Starte shared Browser Context...")
+                    log_and_emit("[INFO] Starte shared Browser Context...")
                     current_browser, current_context, current_page = create_session()
 
                 for row_idx, row_vars in enumerate(dataset_rows, start=1):
@@ -171,11 +179,11 @@ class ExecutionEngineWorker(QThread):
                     # Merge base variables with row variables
                     iter_vars = {**variables, **row_vars}
                     if len(dataset_rows) > 1:
-                        self.log_signal.emit(f"--- 📊 DATENSATZ ZEILE {row_idx}/{total_iterations} ---")
+                        log_and_emit(f"--- 📊 DATENSATZ ZEILE {row_idx}/{total_iterations} ---")
 
                     for idx, item in enumerate(routine_sequence, start=1):
                         if self._is_cancelled:
-                            self.log_signal.emit("[ABBRUCH] Ausführung durch Benutzer gestoppt.")
+                            log_and_emit("[ABBRUCH] Ausführung durch Benutzer gestoppt.")
                             break
 
                         current_step_counter += 1
@@ -184,19 +192,22 @@ class ExecutionEngineWorker(QThread):
                         
                         self.status_signal.emit(f"Führe Routine {idx}/{len(routine_sequence)} aus: {step_label}")
                         self.step_status_signal.emit(step_label, "RUNNING", "")
-                        self.log_signal.emit(f"[{current_step_counter}/{total_steps}] Starte Routine '{rid}'...")
+                        log_and_emit(f"[{current_step_counter}/{total_steps}] Starte Routine '{rid}'...")
 
                         if isolated_session:
-                            self.log_signal.emit(f"[{rid}] Starte isolierte Browser-Session...")
+                            log_and_emit(f"[{rid}] Starte isolierte Browser-Session...")
                             current_browser, current_context, current_page = create_session()
 
                         # Load routine code
                         code_content = self.pm.get_routine_code(rid)
                         if not code_content:
                             err_msg = f"Routine-Datei für '{rid}' existiert nicht!"
-                            self.log_signal.emit(f"[FEHLER] {err_msg}")
+                            log_and_emit(f"[FEHLER] {err_msg}")
                             self.step_status_signal.emit(step_label, "FAIL", err_msg)
                             failed_count += 1
+                            collected_step_results.append({
+                                "name": step_label, "status": "FAIL", "duration": 0.0, "error": err_msg, "screenshot": ""
+                            })
                             continue
 
                         # Execute python snippet
@@ -204,13 +215,14 @@ class ExecutionEngineWorker(QThread):
                         success, error_msg = self._execute_snippet(code_content, current_page, iter_vars)
                         duration = time.time() - step_start
 
+                        shot_path = ""
                         if success:
                             passed_count += 1
-                            self.log_signal.emit(f"[PASS] Routine '{rid}' erfolgreich ({duration:.2f}s).")
+                            log_and_emit(f"[PASS] Routine '{rid}' erfolgreich ({duration:.2f}s).")
                             self.step_status_signal.emit(step_label, "PASS", "")
                         else:
                             failed_count += 1
-                            self.log_signal.emit(f"[FAIL] Routine '{rid}' fehlgeschlagen ({duration:.2f}s): {error_msg}")
+                            log_and_emit(f"[FAIL] Routine '{rid}' fehlgeschlagen ({duration:.2f}s): {error_msg}")
                             self.step_status_signal.emit(step_label, "FAIL", error_msg)
 
                             # Take error screenshot
@@ -221,9 +233,17 @@ class ExecutionEngineWorker(QThread):
                                     shot_path = os.path.join(screenshot_dir, f"error_{rid}_{int(time.time())}.png")
                                     current_page.screenshot(path=shot_path, full_page=True)
                                     self.screenshot_signal.emit(shot_path)
-                                    self.log_signal.emit(f"[SCREENSHOT] Gespeichert unter: {shot_path}")
+                                    log_and_emit(f"[SCREENSHOT] Gespeichert unter: {shot_path}")
                                 except Exception as se:
-                                    self.log_signal.emit(f"[WARN] Screenshot konnte nicht erstellt werden: {str(se)}")
+                                    log_and_emit(f"[WARN] Screenshot konnte nicht erstellt werden: {str(se)}")
+
+                        collected_step_results.append({
+                            "name": step_label,
+                            "status": "PASS" if success else "FAIL",
+                            "duration": duration,
+                            "error": error_msg,
+                            "screenshot": shot_path
+                        })
 
                         if isolated_session and self.auto_close:
                             try:
@@ -237,12 +257,17 @@ class ExecutionEngineWorker(QThread):
 
             except Exception as e:
                 tb = traceback.format_exc()
-                self.log_signal.emit(f"[SYSTEM FEHLER] Unerwarteter Playwright Fehler:\n{tb}")
-                self.finished_signal.emit(False, f"Systemfehler: {str(e)}")
+                log_and_emit(f"[SYSTEM FEHLER] Unerwarteter Playwright Fehler:\n{tb}")
+                report_p = ReportGenerator.generate(
+                    self.item_id, self.mode, self.browser_engine, self.device_profile,
+                    self.speed_mode, self.dataset_id, time.time() - start_time,
+                    passed_count, failed_count, collected_step_results, collected_logs, self.pm.reports_dir
+                )
+                self.finished_signal.emit(False, f"Systemfehler: {str(e)}", report_p)
                 return
             finally:
                 if self.auto_close:
-                    self.log_signal.emit("[INFO] Schließe alle Browserfenster...")
+                    log_and_emit("[INFO] Schließe alle Browserfenster...")
                     for ctx in all_contexts:
                         try:
                             for pg in ctx.pages:
@@ -257,13 +282,31 @@ class ExecutionEngineWorker(QThread):
                         except Exception:
                             pass
                 else:
-                    self.log_signal.emit("[INFO] Browser bleibt nach Ausführung geöffnet.")
+                    log_and_emit("[INFO] Browser bleibt nach Ausführung geöffnet.")
 
         elapsed = time.time() - start_time
         summary = f"Ausführung beendet in {elapsed:.2f}s | Erfolgreich: {passed_count} | Fehlgeschlagen: {failed_count}"
-        self.log_signal.emit(f"=== {summary} ===")
+        log_and_emit(f"=== {summary} ===")
+
+        # Generate HTML Report
+        report_path = ReportGenerator.generate(
+            target_name=self.item_id,
+            mode=self.mode,
+            browser_engine=self.browser_engine,
+            device_profile=self.device_profile,
+            speed_mode=self.speed_mode,
+            dataset_id=self.dataset_id,
+            total_duration=elapsed,
+            passed_count=passed_count,
+            failed_count=failed_count,
+            step_results=collected_step_results,
+            logs=collected_logs,
+            reports_dir=self.pm.reports_dir
+        )
+        log_and_emit(f"[REPORT] HTML-Testbericht erstellt: {report_path}")
+
         overall_success = (failed_count == 0 and not self._is_cancelled)
-        self.finished_signal.emit(overall_success, summary)
+        self.finished_signal.emit(overall_success, summary, report_path)
 
     def _execute_snippet(self, code: str, page: Page, vars_dict: Dict[str, str]) -> tuple[bool, str]:
         """
