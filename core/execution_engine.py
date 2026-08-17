@@ -20,7 +20,7 @@ class ExecutionEngineWorker(QThread):
     finished_signal = Signal(bool, str) # success, summary
     screenshot_signal = Signal(str) # screenshot path on failure
 
-    def __init__(self, project_manager: ProjectManager, mode: str, item_id: str, headed: bool = True, speed_mode: str = "fastest", auto_close: bool = True, browser_engine: str = "chromium", device_profile: str = "desktop_1080p"):
+    def __init__(self, project_manager: ProjectManager, mode: str, item_id: str, headed: bool = True, speed_mode: str = "fastest", auto_close: bool = True, browser_engine: str = "chromium", device_profile: str = "desktop_1080p", dataset_id: Optional[str] = None):
         super().__init__()
         self.pm = project_manager
         self.mode = mode # 'routine', 'group', or 'test'
@@ -30,6 +30,7 @@ class ExecutionEngineWorker(QThread):
         self.auto_close = auto_close
         self.browser_engine = browser_engine.lower() # 'chromium', 'firefox', 'webkit'
         self.device_profile = device_profile # 'desktop_1080p', 'iphone_14', etc.
+        self.dataset_id = dataset_id
         self._is_cancelled = False
 
     def get_slow_mo_ms(self) -> int:
@@ -72,11 +73,22 @@ class ExecutionEngineWorker(QThread):
     def run(self):
         slow_mo_ms = self.get_slow_mo_ms()
         ctx_opts = self.get_context_options(self.device_profile)
-        self.log_signal.emit(f"=== Starte Ausführung ({self.mode.upper()}: {self.item_id}) | Browser: {self.browser_engine.upper()} | Gerät: {self.device_profile} | Tempo: {self.speed_mode} ({slow_mo_ms}ms) ===")
+        ds_msg = f" | Datensatz: {self.dataset_id}" if self.dataset_id else ""
+        self.log_signal.emit(f"=== Starte Ausführung ({self.mode.upper()}: {self.item_id}) | Browser: {self.browser_engine.upper()} | Gerät: {self.device_profile}{ds_msg} ===")
         start_time = time.time()
         
         # Load variables
         variables = self.pm.get_variables()
+
+        # Load dataset rows if specified
+        dataset_rows = []
+        if self.dataset_id:
+            _, _, dataset_rows = self.pm.get_dataset_data(self.dataset_id)
+            if not dataset_rows:
+                self.log_signal.emit(f"[WARN] Datensatz '{self.dataset_id}' ist leer oder konnte nicht geladen werden. Nutze Standard-Variablen.")
+                dataset_rows = [variables]
+        else:
+            dataset_rows = [variables]
         
         # Build execution sequence of routine IDs
         routine_sequence: List[Dict[str, Any]] = []
@@ -119,11 +131,13 @@ class ExecutionEngineWorker(QThread):
             self.finished_signal.emit(False, "Keine Routinen in der Ausführungssequenz.")
             return
 
-        total_steps = len(routine_sequence)
+        total_iterations = len(dataset_rows)
+        total_steps = len(routine_sequence) * total_iterations
         self.step_progress_signal.emit(0, total_steps)
 
         passed_count = 0
         failed_count = 0
+        current_step_counter = 0
 
         all_browsers: List[Browser] = []
         all_contexts: List[BrowserContext] = []
@@ -150,64 +164,76 @@ class ExecutionEngineWorker(QThread):
                     self.log_signal.emit("[INFO] Starte shared Browser Context...")
                     current_browser, current_context, current_page = create_session()
 
-                for idx, item in enumerate(routine_sequence, start=1):
+                for row_idx, row_vars in enumerate(dataset_rows, start=1):
                     if self._is_cancelled:
-                        self.log_signal.emit("[ABBRUCH] Ausführung durch Benutzer gestoppt.")
                         break
 
-                    rid = item["id"]
-                    self.status_signal.emit(f"Führe Routine {idx}/{total_steps} aus: {rid}")
-                    self.step_status_signal.emit(rid, "RUNNING", "")
-                    self.log_signal.emit(f"[{idx}/{total_steps}] Starte Routine '{rid}'...")
+                    # Merge base variables with row variables
+                    iter_vars = {**variables, **row_vars}
+                    if len(dataset_rows) > 1:
+                        self.log_signal.emit(f"--- 📊 DATENSATZ ZEILE {row_idx}/{total_iterations} ---")
 
-                    if isolated_session:
-                        self.log_signal.emit(f"[{rid}] Starte isolierte Browser-Session...")
-                        current_browser, current_context, current_page = create_session()
+                    for idx, item in enumerate(routine_sequence, start=1):
+                        if self._is_cancelled:
+                            self.log_signal.emit("[ABBRUCH] Ausführung durch Benutzer gestoppt.")
+                            break
 
-                    # Load routine code
-                    code_content = self.pm.get_routine_code(rid)
-                    if not code_content:
-                        err_msg = f"Routine-Datei für '{rid}' existiert nicht!"
-                        self.log_signal.emit(f"[FEHLER] {err_msg}")
-                        self.step_status_signal.emit(rid, "FAIL", err_msg)
-                        failed_count += 1
-                        continue
+                        current_step_counter += 1
+                        rid = item["id"]
+                        step_label = f"{rid} (Zeile {row_idx})" if len(dataset_rows) > 1 else rid
+                        
+                        self.status_signal.emit(f"Führe Routine {idx}/{len(routine_sequence)} aus: {step_label}")
+                        self.step_status_signal.emit(step_label, "RUNNING", "")
+                        self.log_signal.emit(f"[{current_step_counter}/{total_steps}] Starte Routine '{rid}'...")
 
-                    # Execute python snippet
-                    step_start = time.time()
-                    success, error_msg = self._execute_snippet(code_content, current_page, variables)
-                    duration = time.time() - step_start
+                        if isolated_session:
+                            self.log_signal.emit(f"[{rid}] Starte isolierte Browser-Session...")
+                            current_browser, current_context, current_page = create_session()
 
-                    if success:
-                        passed_count += 1
-                        self.log_signal.emit(f"[PASS] Routine '{rid}' erfolgreich ({duration:.2f}s).")
-                        self.step_status_signal.emit(rid, "PASS", "")
-                    else:
-                        failed_count += 1
-                        self.log_signal.emit(f"[FAIL] Routine '{rid}' fehlgeschlagen ({duration:.2f}s): {error_msg}")
-                        self.step_status_signal.emit(rid, "FAIL", error_msg)
+                        # Load routine code
+                        code_content = self.pm.get_routine_code(rid)
+                        if not code_content:
+                            err_msg = f"Routine-Datei für '{rid}' existiert nicht!"
+                            self.log_signal.emit(f"[FEHLER] {err_msg}")
+                            self.step_status_signal.emit(step_label, "FAIL", err_msg)
+                            failed_count += 1
+                            continue
 
-                        # Take error screenshot
-                        if current_page and not current_page.is_closed():
+                        # Execute python snippet
+                        step_start = time.time()
+                        success, error_msg = self._execute_snippet(code_content, current_page, iter_vars)
+                        duration = time.time() - step_start
+
+                        if success:
+                            passed_count += 1
+                            self.log_signal.emit(f"[PASS] Routine '{rid}' erfolgreich ({duration:.2f}s).")
+                            self.step_status_signal.emit(step_label, "PASS", "")
+                        else:
+                            failed_count += 1
+                            self.log_signal.emit(f"[FAIL] Routine '{rid}' fehlgeschlagen ({duration:.2f}s): {error_msg}")
+                            self.step_status_signal.emit(step_label, "FAIL", error_msg)
+
+                            # Take error screenshot
+                            if current_page and not current_page.is_closed():
+                                try:
+                                    screenshot_dir = os.path.join(tempfile.gettempdir(), "py_auto_tester_screenshots")
+                                    os.makedirs(screenshot_dir, exist_ok=True)
+                                    shot_path = os.path.join(screenshot_dir, f"error_{rid}_{int(time.time())}.png")
+                                    current_page.screenshot(path=shot_path, full_page=True)
+                                    self.screenshot_signal.emit(shot_path)
+                                    self.log_signal.emit(f"[SCREENSHOT] Gespeichert unter: {shot_path}")
+                                except Exception as se:
+                                    self.log_signal.emit(f"[WARN] Screenshot konnte nicht erstellt werden: {str(se)}")
+
+                        if isolated_session and self.auto_close:
                             try:
-                                screenshot_dir = os.path.join(tempfile.gettempdir(), "py_auto_tester_screenshots")
-                                os.makedirs(screenshot_dir, exist_ok=True)
-                                shot_path = os.path.join(screenshot_dir, f"error_{rid}_{int(time.time())}.png")
-                                current_page.screenshot(path=shot_path, full_page=True)
-                                self.screenshot_signal.emit(shot_path)
-                                self.log_signal.emit(f"[SCREENSHOT] Gespeichert unter: {shot_path}")
-                            except Exception as se:
-                                self.log_signal.emit(f"[WARN] Screenshot konnte nicht erstellt werden: {str(se)}")
+                                if current_page and not current_page.is_closed(): current_page.close()
+                                if current_context: current_context.close()
+                                if current_browser: current_browser.close()
+                            except Exception:
+                                pass
 
-                    if isolated_session and self.auto_close:
-                        try:
-                            if current_page and not current_page.is_closed(): current_page.close()
-                            if current_context: current_context.close()
-                            if current_browser: current_browser.close()
-                        except Exception:
-                            pass
-
-                    self.step_progress_signal.emit(idx, total_steps)
+                        self.step_progress_signal.emit(current_step_counter, total_steps)
 
             except Exception as e:
                 tb = traceback.format_exc()

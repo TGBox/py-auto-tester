@@ -62,4 +62,25 @@ def test_execution_engine_browser_and_device_profiles(temp_pm):
     opts_desk = ExecutionEngineWorker.get_context_options("desktop_1080p")
     assert opts_desk["viewport"] == {"width": 1920, "height": 1080}
 
+def test_dataset_crud_and_worker_dataset_binding(temp_pm):
+    # Create dataset
+    ds_id = temp_pm.save_dataset("test_users", ["USERNAME", "ROLE"], [["admin@test.de", "Admin"], ["user@test.de", "User"]])
+    assert ds_id == "test_users"
+
+    datasets = temp_pm.get_datasets()
+    assert len(datasets) == 1
+    assert datasets[0]["id"] == "test_users"
+
+    headers, rows, row_dicts = temp_pm.get_dataset_data("test_users")
+    assert headers == ["USERNAME", "ROLE"]
+    assert len(rows) == 2
+    assert row_dicts[0]["USERNAME"] == "admin@test.de"
+    assert row_dicts[1]["ROLE"] == "User"
+
+    # Worker dataset binding check
+    from core.execution_engine import ExecutionEngineWorker
+    worker = ExecutionEngineWorker(temp_pm, "routine", "test_rec", dataset_id="test_users")
+    assert worker.dataset_id == "test_users"
+
+
 

@@ -13,6 +13,7 @@ from core.codegen_recorder import CodegenRecorder
 from gui.tree_manager import TreeManagerWidget
 from gui.routine_editor import RoutineEditorWidget
 from gui.runner_widget import RunnerWidget
+from gui.dataset_editor import DatasetEditorWidget
 from gui.styles import DARK_THEME_QSS
 
 class VariablesDialog(QDialog):
@@ -96,6 +97,11 @@ class MainWindow(QMainWindow):
         # Tab 2: Live Test Runner
         self.runner_widget = RunnerWidget(self.pm)
         self.tabs.addTab(self.runner_widget, "▶ Test Runner")
+
+        # Tab 3: Dataset Editor
+        self.dataset_widget = DatasetEditorWidget(self.pm)
+        self.dataset_widget.datasets_updated_signal.connect(self.runner_widget.refresh_datasets)
+        self.tabs.addTab(self.dataset_widget, "📊 Datensätze")
 
         splitter.addWidget(self.tabs)
         splitter.setStretchFactor(1, 3)

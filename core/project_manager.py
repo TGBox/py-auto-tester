@@ -1,13 +1,15 @@
 import os
 import json
+import csv
 import re
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 
 class ProjectManager:
-    """Manages project data: Routines, Groups, Tests, and Variables."""
+    """Manages project data: Routines, Groups, Tests, Variables, and Datasets."""
     def __init__(self, root_dir: str = "project_data"):
         self.root_dir = os.path.abspath(root_dir)
         self.routines_dir = os.path.join(self.root_dir, "routines")
+        self.datasets_dir = os.path.join(self.root_dir, "datasets")
         self.groups_file = os.path.join(self.root_dir, "groups.json")
         self.tests_file = os.path.join(self.root_dir, "tests.json")
         self.variables_file = os.path.join(self.root_dir, "variables.json")
@@ -17,6 +19,7 @@ class ProjectManager:
     def ensure_structure(self):
         """Ensure directories and default JSON files exist."""
         os.makedirs(self.routines_dir, exist_ok=True)
+        os.makedirs(self.datasets_dir, exist_ok=True)
         
         if not os.path.exists(self.groups_file):
             self._write_json(self.groups_file, [])
@@ -181,3 +184,76 @@ class ProjectManager:
 
     def save_variables(self, variables: Dict[str, str]):
         self._write_json(self.variables_file, variables)
+
+    # --- Datasets ---
+    def get_datasets(self) -> List[Dict[str, Any]]:
+        """Scans datasets_dir for .csv datasets."""
+        datasets = []
+        if not os.path.exists(self.datasets_dir):
+            return datasets
+
+        for filename in sorted(os.listdir(self.datasets_dir)):
+            if filename.endswith(".csv"):
+                dataset_id = os.path.splitext(filename)[0]
+                filepath = os.path.join(self.datasets_dir, filename)
+                datasets.append({
+                    "id": dataset_id,
+                    "name": dataset_id.replace("_", " ").title(),
+                    "filename": filename,
+                    "filepath": filepath
+                })
+        return datasets
+
+    def get_dataset_data(self, dataset_id: str) -> Tuple[List[str], List[List[str]], List[Dict[str, str]]]:
+        """
+        Reads CSV dataset file and returns (headers, row_lists, row_dicts).
+        """
+        safe_id = re.sub(r'[^a-zA-Z0-9_]', '_', dataset_id.lower())
+        filepath = os.path.join(self.datasets_dir, f"{safe_id}.csv")
+        if not os.path.exists(filepath):
+            return [], [], []
+
+        headers = []
+        rows = []
+        row_dicts = []
+
+        try:
+            with open(filepath, "r", encoding="utf-8", newline="") as f:
+                reader = csv.reader(f)
+                lines = list(reader)
+                if lines:
+                    headers = [h.strip() for h in lines[0]]
+                    for r in lines[1:]:
+                        row_vals = [cell.strip() for cell in r]
+                        rows.append(row_vals)
+                        # Build dictionary
+                        row_dict = {}
+                        for idx, h in enumerate(headers):
+                            row_dict[h] = row_vals[idx] if idx < len(row_vals) else ""
+                        row_dicts.append(row_dict)
+        except Exception:
+            pass
+
+        return headers, rows, row_dicts
+
+    def save_dataset(self, dataset_id: str, headers: List[str], rows: List[List[str]]) -> str:
+        """Saves headers and rows into CSV dataset file."""
+        safe_id = re.sub(r'[^a-zA-Z0-9_]', '_', dataset_id.lower())
+        if not safe_id:
+            safe_id = "dataset_1"
+
+        filepath = os.path.join(self.datasets_dir, f"{safe_id}.csv")
+        with open(filepath, "w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(headers)
+            for row in rows:
+                writer.writerow(row)
+
+        return safe_id
+
+    def delete_dataset(self, dataset_id: str):
+        safe_id = re.sub(r'[^a-zA-Z0-9_]', '_', dataset_id.lower())
+        filepath = os.path.join(self.datasets_dir, f"{safe_id}.csv")
+        if os.path.exists(filepath):
+            os.remove(filepath)
+

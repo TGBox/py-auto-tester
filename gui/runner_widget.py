@@ -65,6 +65,16 @@ class RunnerWidget(QWidget):
         self.device_combo.setToolTip("Wähle das Geräte- und Viewport-Profil für die Emulation")
         c_layout.addWidget(self.device_combo)
 
+        # Dataset Dropdown
+        dataset_label = QLabel("📊 Datensatz:")
+        dataset_label.setStyleSheet("font-weight: bold;")
+        c_layout.addWidget(dataset_label)
+
+        self.dataset_combo = QComboBox()
+        self.dataset_combo.setToolTip("Wähle einen Datensatz (CSV) für die iterative Testausführung")
+        c_layout.addWidget(self.dataset_combo)
+        self.refresh_datasets()
+
         # Speed Dropdown
         speed_label = QLabel("⏱️ Tempo:")
         speed_label.setStyleSheet("font-weight: bold;")
@@ -78,6 +88,17 @@ class RunnerWidget(QWidget):
         self.speed_combo.setCurrentIndex(1) # Default to Normal
         self.speed_combo.setToolTip("Bestimmt die Verzögerung zwischen einzelnen Playwright-Aktionen (slow_mo)")
         c_layout.addWidget(self.speed_combo)
+
+    def refresh_datasets(self):
+        self.dataset_combo.blockSignals(True)
+        self.dataset_combo.clear()
+        self.dataset_combo.addItem("Kein Datensatz (Standard)", None)
+
+        datasets = self.pm.get_datasets()
+        for d in datasets:
+            self.dataset_combo.addItem(f"📊 {d['name']}", d["id"])
+
+        self.dataset_combo.blockSignals(False)
 
         self.headed_cb = QCheckBox("Browser sichtbar (Headed)")
         self.headed_cb.setChecked(True)
@@ -178,11 +199,13 @@ class RunnerWidget(QWidget):
         speed_mode = self.speed_combo.currentData() or "normal"
         browser_engine = self.browser_combo.currentData() or "chromium"
         device_profile = self.device_combo.currentData() or "desktop_1080p"
+        dataset_id = self.dataset_combo.currentData()
 
         self.worker = ExecutionEngineWorker(
             self.pm, self.current_mode, self.current_item_id,
             headed=headed, speed_mode=speed_mode, auto_close=auto_close,
-            browser_engine=browser_engine, device_profile=device_profile
+            browser_engine=browser_engine, device_profile=device_profile,
+            dataset_id=dataset_id
         )
         self.worker.log_signal.connect(self.append_log)
         self.worker.step_progress_signal.connect(self.update_progress)

@@ -29,6 +29,13 @@ def seed_demo_data(project_dir: str = "project_data"):
         with open(demo_routine_path, "w", encoding="utf-8") as f:
             f.write(sample_code)
 
+    datasets_dir = os.path.join(project_dir, "datasets")
+    os.makedirs(datasets_dir, exist_ok=True)
+    demo_ds_path = os.path.join(datasets_dir, "demo_users.csv")
+    if not os.path.exists(demo_ds_path):
+        with open(demo_ds_path, "w", encoding="utf-8", newline="") as f:
+            f.write("USERNAME,PASSWORD\nadmin@demo.de,danitest\nuser2@demo.de,pass456\n")
+
 def main():
     seed_demo_data("project_data")
 
