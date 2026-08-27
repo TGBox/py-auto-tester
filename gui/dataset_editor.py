@@ -94,7 +94,7 @@ class DatasetEditorWidget(QWidget):
 
         # Table Widget
         self.table = QTableWidget(0, 0)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self.table)
 
     def refresh_dataset_list(self):
@@ -257,9 +257,9 @@ class DatasetEditorWidget(QWidget):
         reply = QMessageBox.question(
             self, "Datensatz löschen",
             f"Möchtest du den Datensatz '{self.current_dataset_id}' wirklich löschen?",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             self.pm.delete_dataset(self.current_dataset_id)
             self.current_dataset_id = None
             self.refresh_dataset_list()

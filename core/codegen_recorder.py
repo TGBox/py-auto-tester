@@ -8,7 +8,7 @@ class CodegenRecorder:
     """Manages spawning Playwright Codegen and formatting generated code."""
 
     @staticmethod
-    def launch_codegen(url: str = "https://google.com", browser: str = "chromium", device: str = None) -> Tuple[Optional[str], str]:
+    def launch_codegen(url: str = "https://google.com", browser: str = "chromium", device: Optional[str] = None) -> Tuple[Optional[str], str]:
         """
         Launches playwright codegen writing to a temporary file.
         Returns (recorded_code_snippet, error_message).

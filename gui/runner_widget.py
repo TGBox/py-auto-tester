@@ -127,14 +127,14 @@ class RunnerWidget(QWidget):
         layout.addWidget(self.progress_bar)
 
         # Splitter: Table (Top/Left) & Console/Screenshot (Bottom/Right)
-        splitter = QSplitter(Qt.Vertical)
+        splitter = QSplitter(Qt.Orientation.Vertical)
 
         # Step Status Table
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(["Routine / Schritt", "Status", "Fehlerdetails"])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         splitter.addWidget(self.table)
 
         # Console & Screenshot area
@@ -158,7 +158,7 @@ class RunnerWidget(QWidget):
         shot_layout.addWidget(shot_title)
 
         self.shot_label = QLabel("Kein Fehler")
-        self.shot_label.setAlignment(Qt.AlignCenter)
+        self.shot_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.shot_label.setMinimumSize(220, 140)
         self.shot_label.setStyleSheet("border: 1px dashed #475569; border-radius: 6px; background-color: #0F172A;")
         shot_layout.addWidget(self.shot_label)
@@ -248,7 +248,8 @@ class RunnerWidget(QWidget):
         # Check if item exists in table
         row_found = -1
         for row in range(self.table.rowCount()):
-            if self.table.item(row, 0).text() == item_id:
+            item = self.table.item(row, 0)
+            if item and item.text() == item_id:
                 row_found = row
                 break
 
@@ -274,7 +275,7 @@ class RunnerWidget(QWidget):
     def show_screenshot(self, filepath: str):
         if os.path.exists(filepath):
             pixmap = QPixmap(filepath)
-            scaled = pixmap.scaled(self.shot_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            scaled = pixmap.scaled(self.shot_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
             self.shot_label.setPixmap(scaled)
 
     def on_finished(self, success: bool, summary: str, report_path: str = ""):

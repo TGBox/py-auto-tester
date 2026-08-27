@@ -40,7 +40,7 @@ class VariablesDialog(QDialog):
         self.text_edit.setPlaceholderText("BASE_URL=https://example.com\nUSERNAME=admin")
         layout.addWidget(self.text_edit)
 
-        bbox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bbox = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         bbox.accepted.connect(self.save_vars)
         bbox.rejected.connect(self.reject)
         layout.addWidget(bbox)
@@ -76,7 +76,7 @@ class MainWindow(QMainWindow):
         main_layout = QHBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
-        splitter = QSplitter(Qt.Horizontal)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # Sidebar (Tree Manager)
         self.tree_manager = TreeManagerWidget(self.pm)
@@ -148,7 +148,7 @@ class MainWindow(QMainWindow):
         url, ok = QInputDialog.getText(
             self, "🔴 Routine Aufnehmen (Playwright Codegen)",
             "Start-URL für die Aufnahme eingeben:",
-            QLineEdit.Normal, default_url
+            QLineEdit.EchoMode.Normal, default_url
         )
         if not ok or not url.strip():
             return

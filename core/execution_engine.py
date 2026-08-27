@@ -210,6 +210,16 @@ class ExecutionEngineWorker(QThread):
                             })
                             continue
 
+                        if not current_page:
+                            err_msg = f"Browser-Seite für '{rid}' ist nicht initialisiert!"
+                            log_and_emit(f"[FEHLER] {err_msg}")
+                            self.step_status_signal.emit(step_label, "FAIL", err_msg)
+                            failed_count += 1
+                            collected_step_results.append({
+                                "name": step_label, "status": "FAIL", "duration": 0.0, "error": err_msg, "screenshot": ""
+                            })
+                            continue
+
                         # Execute python snippet
                         step_start = time.time()
                         success, error_msg = self._execute_snippet(code_content, current_page, iter_vars)

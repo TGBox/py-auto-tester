@@ -25,3 +25,7 @@ build-backend = "uv_build"
 testpaths = ["test_app.py"]
 norecursedirs = ["scratch", "project_data", ".venv"]
 
+[tool.pyright]
+extraPaths = ["."]
+
+

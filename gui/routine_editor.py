@@ -18,7 +18,7 @@ class PythonSyntaxHighlighter(QSyntaxHighlighter):
         # Keywords
         keyword_format = QTextCharFormat()
         keyword_format.setForeground(QColor("#F472B6")) # Pink/Magenta
-        keyword_format.setFontWeight(QFont.Bold)
+        keyword_format.setFontWeight(QFont.Weight.Bold)
         keywords = [
             "def", "class", "import", "from", "return", "if", "else", "elif",
             "for", "while", "in", "as", "with", "try", "except", "pass", "and", "or", "not"
@@ -30,7 +30,7 @@ class PythonSyntaxHighlighter(QSyntaxHighlighter):
         # Playwright & Page calls
         page_format = QTextCharFormat()
         page_format.setForeground(QColor("#38BDF8")) # Cyan
-        page_format.setFontWeight(QFont.Bold)
+        page_format.setFontWeight(QFont.Weight.Bold)
         pattern = QRegularExpression(r"\b(page|vars|execute|get_by_role|get_by_text|locator|click|fill|press|goto|dblclick)\b")
         self.highlighting_rules.append((pattern, page_format))
 
@@ -92,7 +92,7 @@ class RoutineEditorWidget(QWidget):
         # Code Editor
         self.editor = QPlainTextEdit()
         font = QFont("Consolas", 11)
-        font.setStyleHint(QFont.Monospace)
+        font.setStyleHint(QFont.StyleHint.Monospace)
         self.editor.setFont(font)
         self.editor.setPlaceholderText("# Python-Code für die Routine erscheint hier...")
         layout.addWidget(self.editor)

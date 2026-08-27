@@ -54,7 +54,7 @@ class TreeManagerWidget(QWidget):
         # Tree Widget
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
-        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self.show_context_menu)
         self.tree.itemSelectionChanged.connect(self.on_item_selection_changed)
         layout.addWidget(self.tree)
@@ -66,12 +66,12 @@ class TreeManagerWidget(QWidget):
         # Category: Tests
         tests_root = QTreeWidgetItem(self.tree, ["📋 TESTS"])
         tests_root.setExpanded(True)
-        tests_root.setData(0, Qt.UserRole, {"type": "category_tests"})
+        tests_root.setData(0, Qt.ItemDataRole.UserRole, {"type": "category_tests"})
         
         tests = self.pm.get_tests()
         for t in tests:
             t_node = QTreeWidgetItem(tests_root, [f"🧪 {t['name']}"])
-            t_node.setData(0, Qt.UserRole, {"type": "test", "id": t["id"]})
+            t_node.setData(0, Qt.ItemDataRole.UserRole, {"type": "test", "id": t["id"]})
             
             # Show nested items
             for iid in t.get("item_ids", []):
@@ -81,37 +81,37 @@ class TreeManagerWidget(QWidget):
                 elif iid.startswith("routine:"):
                     sub_name = f"🔧 Routine: {iid.replace('routine:', '')}"
                 sub_node = QTreeWidgetItem(t_node, [sub_name])
-                sub_node.setData(0, Qt.UserRole, {"type": "sub_item", "id": iid})
+                sub_node.setData(0, Qt.ItemDataRole.UserRole, {"type": "sub_item", "id": iid})
 
         # Category: Gruppen
         groups_root = QTreeWidgetItem(self.tree, ["📦 GRUPPEN"])
         groups_root.setExpanded(True)
-        groups_root.setData(0, Qt.UserRole, {"type": "category_groups"})
+        groups_root.setData(0, Qt.ItemDataRole.UserRole, {"type": "category_groups"})
         
         groups = self.pm.get_groups()
         for g in groups:
             g_node = QTreeWidgetItem(groups_root, [f"📁 {g['name']}"])
-            g_node.setData(0, Qt.UserRole, {"type": "group", "id": g["id"]})
+            g_node.setData(0, Qt.ItemDataRole.UserRole, {"type": "group", "id": g["id"]})
             
             for rid in g.get("routine_ids", []):
                 r_sub = QTreeWidgetItem(g_node, [f"🔧 {rid}"])
-                r_sub.setData(0, Qt.UserRole, {"type": "sub_routine", "id": rid})
+                r_sub.setData(0, Qt.ItemDataRole.UserRole, {"type": "sub_routine", "id": rid})
 
         # Category: Routinen
         routines_root = QTreeWidgetItem(self.tree, ["🔧 ROUTINEN (Aufgenommen)"])
         routines_root.setExpanded(True)
-        routines_root.setData(0, Qt.UserRole, {"type": "category_routines"})
+        routines_root.setData(0, Qt.ItemDataRole.UserRole, {"type": "category_routines"})
         
         routines = self.pm.get_routines()
         for r in routines:
             r_node = QTreeWidgetItem(routines_root, [f"⚡ {r['name']} ({r['id']}.py)"])
-            r_node.setData(0, Qt.UserRole, {"type": "routine", "id": r["id"]})
+            r_node.setData(0, Qt.ItemDataRole.UserRole, {"type": "routine", "id": r["id"]})
 
     def on_item_selection_changed(self):
         selected = self.tree.selectedItems()
         if not selected:
             return
-        item_data = selected[0].data(0, Qt.UserRole)
+        item_data = selected[0].data(0, Qt.ItemDataRole.UserRole)
         if item_data and "type" in item_data and "id" in item_data:
             self.item_selected_signal.emit(item_data["type"], item_data["id"])
 
@@ -120,7 +120,7 @@ class TreeManagerWidget(QWidget):
         if not item:
             return
 
-        data = item.data(0, Qt.UserRole)
+        data = item.data(0, Qt.ItemDataRole.UserRole)
         if not data or "type" not in data:
             return
 
@@ -212,9 +212,9 @@ class TreeManagerWidget(QWidget):
             "Sollen Routinen im Test isolierte Browser-Sessions nutzen?\n\n"
             "Ja = Isolierte Sessions per Routine\n"
             "Nein = Shared Session (Standard, Logins bleiben erhalten)",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No
         )
-        isolated = (reply == QMessageBox.Yes)
+        isolated = (reply == QMessageBox.StandardButton.Yes)
         
         self.pm.save_test(test_id, test["name"], test.get("description", ""), test.get("item_ids", []), isolated_session=isolated)
         QMessageBox.information(self, "Gespeichert", f"Test '{test['name']}' aktualisiert (Isoliert={isolated}).")
@@ -223,9 +223,9 @@ class TreeManagerWidget(QWidget):
         reply = QMessageBox.question(
             self, "Löschen bestätigen",
             f"Möchtest du dieses Element wirklich löschen?\nTyp: {item_type}, ID: {item_id}",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             if item_type == "routine":
                 self.pm.delete_routine(item_id)
             elif item_type == "group":

@@ -4,3 +4,11 @@ __pycache__
 project_data/**.*
 project_data/routines/**.*
 testdata/**.*
+project_data/reports/
+project_data/routines/
+project_data/groups.json
+project_data/tests.json
+project_data/variables.json
+reports/
+routines/
+datasets/
