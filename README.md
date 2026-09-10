@@ -22,7 +22,8 @@ uv run playwright install      # Browser (einmalig)
 Ohne `uv`:
 
 ```bash
-pip install -e ".[dev]"
+pip install -e .
+pip install pytest        # nur fuer die Tests; die dev-Gruppe ist kein Extra
 playwright install
 ```
 
@@ -220,10 +221,28 @@ blockiert.
 ## Tests
 
 ```bash
+uv sync                          # einmalig; installiert auch pytest
 uv run pytest                    # alles
 uv run pytest -m "not e2e"       # nur die schnellen Unit-Tests
 uv run pytest -m e2e             # nur die Browser-Tests
 ```
+
+`pytest` steht in `[dependency-groups] dev` und wird von `uv sync` und
+`uv run` automatisch mitinstalliert. Wichtig ist der Unterschied zu
+`[project.optional-dependencies]`: dort würde `uv run pytest` das pytest
+im venv *nicht* finden, auf ein pytest im PATH ausweichen und damit ein
+Python ohne die Projektabhängigkeiten benutzen — das sieht dann nach
+kaputten Tests aus, ist aber nur die falsche Umgebung. Zum Prüfen:
+
+```bash
+uv run python -c "import sys; print(sys.executable)"
+```
+
+Das muss auf `.venv` zeigen.
+
+Tests, die PySide6 brauchen, werden ohne PySide6 übersprungen; der
+Kern (`core/`, `cli.py`) lädt ohne Qt *und* ohne Playwright, damit
+`list` und `index` auch in einer schmalen Umgebung funktionieren.
 
 Die E2E-Tests starten einen lokalen Webserver mit Testseiten unter
 `tests/e2e/site/` und fahren echtes Chromium dagegen. Fehlt der Browser,

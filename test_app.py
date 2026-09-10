@@ -189,6 +189,7 @@ def test_runner_is_free_of_qt(temp_pm):
 
 def test_gui_layer_does_need_qt(temp_pm):
     """Gegenprobe: der Qt-Blocker im Test oben ist wirklich wirksam."""
+    pytest.importorskip("PySide6", reason="ohne PySide6 sagt der Test nichts aus")
     import subprocess
     code = (
         "import sys\n"
@@ -235,6 +236,7 @@ def test_runner_reports_empty_sequence(temp_pm):
 
 def test_finished_signal_emits_three_arguments(temp_pm):
     """Regression: the 'no routines' path used to emit 2 args into a 3-arg signal."""
+    pytest.importorskip("PySide6", reason="Qt-Adapter braucht PySide6")
     from py_auto_tester.gui.execution_worker import ExecutionEngineWorker
 
     worker = ExecutionEngineWorker(temp_pm, "test", "does_not_exist")
@@ -253,6 +255,7 @@ def test_finished_signal_emits_three_arguments(temp_pm):
 
 def test_worker_exposes_config_to_gui(temp_pm):
     """Die GUI liest mode/item_id/browser_engine direkt am Worker."""
+    pytest.importorskip("PySide6", reason="Qt-Adapter braucht PySide6")
     from py_auto_tester.gui.execution_worker import ExecutionEngineWorker
 
     worker = ExecutionEngineWorker(

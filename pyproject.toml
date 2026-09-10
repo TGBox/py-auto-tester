@@ -12,7 +12,11 @@ dependencies = [
     "playwright>=1.40.0",
 ]
 
-[project.optional-dependencies]
+# PEP 735: uv installiert diese Gruppe bei "uv sync" und "uv run" von selbst.
+# Als [project.optional-dependencies] waere sie es NICHT — dann findet
+# "uv run pytest" kein pytest im venv und faellt auf das System-Python
+# zurueck, dem die Projektabhaengigkeiten fehlen.
+[dependency-groups]
 dev = [
     "pytest>=8.0.0",
 ]

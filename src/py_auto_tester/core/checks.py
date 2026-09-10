@@ -299,9 +299,11 @@ def evaluate_check(
     """
     Wertet eine einzelne deklarative Erwartung aus.
     Wirft nie — ein Fehler bei der Auswertung ist ein FAIL mit Begründung.
-    """
-    from playwright.sync_api import expect as pw_expect
 
+    Playwright wird erst geladen, wenn die Erwartung wirklich die Seite
+    befragt — die Diagnose-Erwartungen und die Pflichtfeldprüfung kommen
+    ohne Browser aus.
+    """
     label = describe_check(check)
     ctype = check.get("type", "")
     target = (check.get("target") or "").strip()
@@ -343,7 +345,9 @@ def evaluate_check(
                 return done(False, f"{len(hits)} Befund(e): {detail}")
             return done(True)
 
-        # --- Seiten-basierte Erwartungen
+        # --- Ab hier wird die Seite befragt
+        from playwright.sync_api import expect as pw_expect
+
         if ctype == "element_visible":
             pw_expect(_resolve_locator(page, target).first).to_be_visible(timeout=timeout_ms)
             return done(True)

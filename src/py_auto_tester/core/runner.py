@@ -7,6 +7,8 @@ die GUI mappt die Ereignisse auf Qt-Signale, die CLI schreibt sie nach stdout,
 Tests sammeln sie in Listen.
 """
 
+from __future__ import annotations
+
 import ast
 import os
 import linecache
@@ -14,9 +16,15 @@ import sys
 import tempfile
 import time
 import traceback
-from typing import Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
-from playwright.sync_api import sync_playwright, expect, Browser, BrowserContext, Page
+# Playwright wird erst beim Ausführen importiert, nicht beim Modulimport.
+# So funktionieren `py-auto-tester list`, die Laufübersicht und die
+# browserlosen Tests auch dann, wenn nur die Projektdaten interessieren.
+# Die Annotationen sind dank `from __future__ import annotations` Strings
+# und brauchen die Typen zur Laufzeit nicht.
+if TYPE_CHECKING:
+    from playwright.sync_api import Browser, BrowserContext, Page
 
 from py_auto_tester.core.project_manager import ProjectManager
 from py_auto_tester.core.report_generator import ReportGenerator
@@ -237,6 +245,8 @@ class TestRunner:
         all_contexts: List[BrowserContext] = []
         current_step_counter = 0
         aborted_early = False
+
+        from playwright.sync_api import sync_playwright
 
         with sync_playwright() as p:
             current_browser: Optional[Browser] = None
@@ -815,10 +825,16 @@ class TestRunner:
             "__file__": filename,
             "page": page,
             "vars": vars_dict,
-            "expect": expect,
             "log": _log,
             "re": __import__("re"),
         }
+        # expect() nur anbieten, wenn Playwright da ist — ohne Browser wird
+        # es ohnehin nicht gebraucht, und der Import soll hier nicht scheitern.
+        try:
+            from playwright.sync_api import expect
+            namespace["expect"] = expect
+        except ImportError:
+            pass
         namespace.update(build_check_api(recorder, log=log))
 
         try:
