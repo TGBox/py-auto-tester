@@ -1,12 +1,14 @@
 import os
+import re
 import sys
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QTabWidget,
     QSplitter, QInputDialog, QMessageBox, QDialog, QFormLayout,
-    QLineEdit, QPushButton, QDialogButtonBox, QLabel, QTextEdit
+    QLineEdit, QPushButton, QDialogButtonBox, QLabel, QTextEdit,
+    QComboBox, QCheckBox, QSpinBox, QPlainTextEdit
 )
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QIcon, QDesktopServices
 
 from core.project_manager import ProjectManager
 from core.codegen_recorder import CodegenRecorder
@@ -53,6 +55,195 @@ class VariablesDialog(QDialog):
                 k, v = line.split("=", 1)
                 new_vars[k.strip()] = v.strip()
         self.pm.save_variables(new_vars)
+        self.accept()
+
+
+class DiagnosticsSettingsDialog(QDialog):
+    """
+    Einstellungen dafür, wie mit JS-Konsolenfehlern und HTTP-Fehlern
+    umgegangen wird, die während eines Laufs auftreten.
+    """
+    POLICIES = [
+        ("Warnen (Status bleibt PASS)", "warn"),
+        ("Als Fehler behandeln (Schritt wird rot)", "fail"),
+        ("Nur ins Protokoll schreiben", "log"),
+    ]
+
+    def __init__(self, parent, project_manager: ProjectManager):
+        super().__init__(parent)
+        self.pm = project_manager
+        self.setWindowTitle("🩺 Diagnose & Artefakte")
+        self.resize(640, 720)
+        self.setup_ui()
+
+    ARTIFACT_MODES = [
+        ("Nur bei Fehlern", "on_failure"),
+        ("Immer", "always"),
+        ("Aus", "off"),
+    ]
+
+    def _policy_combo(self, current: str) -> QComboBox:
+        combo = QComboBox()
+        for label, value in self.POLICIES:
+            combo.addItem(label, value)
+        idx = combo.findData(current)
+        combo.setCurrentIndex(idx if idx >= 0 else 0)
+        return combo
+
+    def _artifact_combo(self, current: str) -> QComboBox:
+        combo = QComboBox()
+        for label, value in self.ARTIFACT_MODES:
+            combo.addItem(label, value)
+        idx = combo.findData(current)
+        combo.setCurrentIndex(idx if idx >= 0 else 0)
+        return combo
+
+    def setup_ui(self):
+        settings = self.pm.get_settings()
+        layout = QVBoxLayout(self)
+
+        info = QLabel(
+            "Während jedes Schritts werden JS-Konsolenfehler und fehlerhafte "
+            "HTTP-Antworten mitgeschnitten. Hier legst du fest, wie stark sie gewertet werden."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        form = QFormLayout()
+
+        self.console_combo = self._policy_combo(settings.get("console_policy", "warn"))
+        self.console_combo.setToolTip("Gilt für console.error und unbehandelte JS-Fehler")
+        form.addRow("JS-Konsolenfehler:", self.console_combo)
+
+        self.network_combo = self._policy_combo(settings.get("network_policy", "warn"))
+        self.network_combo.setToolTip("Gilt für HTTP-Antworten mit Status 400 und höher")
+        form.addRow("HTTP-Fehler (4xx/5xx):", self.network_combo)
+
+        self.warnings_cb = QCheckBox("Auch console.warn erfassen")
+        self.warnings_cb.setChecked(bool(settings.get("capture_console_warnings", False)))
+        self.warnings_cb.setToolTip(
+            "Warnungen sind bei vielen Web-Apps sehr häufig — erzeugt viel Rauschen"
+        )
+        form.addRow("", self.warnings_cb)
+
+        self.timeout_spin = QSpinBox()
+        self.timeout_spin.setRange(500, 60000)
+        self.timeout_spin.setSingleStep(500)
+        self.timeout_spin.setSuffix(" ms")
+        self.timeout_spin.setValue(int(settings.get("check_timeout_ms", 5000)))
+        self.timeout_spin.setToolTip(
+            "Wie lange eine einzelne GUI-Erwartung auf ihr Element wartet"
+        )
+        form.addRow("Timeout je Erwartung:", self.timeout_spin)
+
+        layout.addLayout(form)
+
+        # --- Artefakte pro Lauf
+        layout.addWidget(QLabel("<b>Artefakte pro Lauf</b>"))
+        art_form = QFormLayout()
+
+        self.trace_combo = self._artifact_combo(settings.get("trace_mode", "on_failure"))
+        self.trace_combo.setToolTip(
+            "Playwright-Trace mit DOM-Snapshots, Netzwerk und Zeitleiste.\n"
+            "Ansehen mit: npx playwright show-trace <datei>"
+        )
+        art_form.addRow("Trace aufzeichnen:", self.trace_combo)
+
+        self.video_combo = self._artifact_combo(settings.get("video_mode", "off"))
+        self.video_combo.setToolTip(
+            "Eine Aufnahme pro Browser-Session (nicht pro Schritt).\n"
+            "Kostet Laufzeit und Plattenplatz."
+        )
+        art_form.addRow("Video aufzeichnen:", self.video_combo)
+
+        self.keep_runs_spin = QSpinBox()
+        self.keep_runs_spin.setRange(0, 999)
+        self.keep_runs_spin.setSpecialValueText("alle behalten")
+        self.keep_runs_spin.setValue(int(settings.get("keep_runs", 20)))
+        self.keep_runs_spin.setToolTip(
+            "Ältere Laufverzeichnisse werden nach jedem Lauf gelöscht.\n"
+            "0 = nie aufräumen (Traces und Videos summieren sich)."
+        )
+        art_form.addRow("Läufe aufbewahren:", self.keep_runs_spin)
+
+        layout.addLayout(art_form)
+
+        art_hint = QLabel(
+            "Jeder Lauf bekommt ein eigenes Verzeichnis unter <code>project_data/runs/</code> "
+            "mit Report, run.json, junit.xml und den Artefakten. Der Ordner ist komplett "
+            "verschickbar — die Links im Report sind relativ."
+        )
+        art_hint.setWordWrap(True)
+        art_hint.setStyleSheet("color: #94A3B8; font-size: 11px;")
+        layout.addWidget(art_hint)
+
+        layout.addWidget(QLabel(
+            "<b>Konsolenmeldungen ignorieren</b> (ein regulärer Ausdruck pro Zeile):"
+        ))
+        self.ignore_console_edit = QPlainTextEdit("\n".join(settings.get("ignore_console", [])))
+        self.ignore_console_edit.setPlaceholderText(
+            "ResizeObserver loop\nDeprecationWarning\nfavicon"
+        )
+        self.ignore_console_edit.setMaximumHeight(110)
+        layout.addWidget(self.ignore_console_edit)
+
+        layout.addWidget(QLabel(
+            "<b>URLs ignorieren</b> (ein regulärer Ausdruck pro Zeile):"
+        ))
+        self.ignore_urls_edit = QPlainTextEdit("\n".join(settings.get("ignore_urls", [])))
+        self.ignore_urls_edit.setPlaceholderText(
+            r"google-analytics\.com" "\n" r"\.woff2$" "\n" r"/telemetry/"
+        )
+        self.ignore_urls_edit.setMaximumHeight(110)
+        layout.addWidget(self.ignore_urls_edit)
+
+        hint = QLabel(
+            "Tipp: Fange mit „Warnen“ an und schaue einen Lauf lang, wie viel dein System "
+            "an Rauschen produziert. Was dauerhaft unwichtig ist, kommt in die Ignore-Listen — "
+            "erst danach lohnt „Als Fehler behandeln“."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #94A3B8; font-size: 11px;")
+        layout.addWidget(hint)
+
+        bbox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bbox.accepted.connect(self.save_settings)
+        bbox.rejected.connect(self.reject)
+        layout.addWidget(bbox)
+
+    def save_settings(self):
+        def lines(widget):
+            return [ln.strip() for ln in widget.toPlainText().splitlines() if ln.strip()]
+
+        invalid = []
+        for pattern in lines(self.ignore_console_edit) + lines(self.ignore_urls_edit):
+            try:
+                re.compile(pattern)
+            except re.error as e:
+                invalid.append(f"{pattern}  ({e})")
+
+        if invalid:
+            detail = "\n".join(f"• {p}" for p in invalid[:6])
+            reply = QMessageBox.question(
+                self, "Ungültige Ausdrücke",
+                f"Diese Muster sind keine gültigen regulären Ausdrücke und würden "
+                f"ignoriert:\n\n{detail}\n\nTrotzdem speichern?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
+
+        self.pm.save_settings({
+            "console_policy": self.console_combo.currentData(),
+            "network_policy": self.network_combo.currentData(),
+            "capture_console_warnings": self.warnings_cb.isChecked(),
+            "check_timeout_ms": self.timeout_spin.value(),
+            "ignore_console": lines(self.ignore_console_edit),
+            "ignore_urls": lines(self.ignore_urls_edit),
+            "trace_mode": self.trace_combo.currentData(),
+            "video_mode": self.video_combo.currentData(),
+            "keep_runs": self.keep_runs_spin.value(),
+        })
         self.accept()
 
 
@@ -124,7 +315,11 @@ class MainWindow(QMainWindow):
         vars_act = file_menu.addAction("⚙️ Variablen Verwalten")
         vars_act.triggered.connect(self.open_variables_dialog)
 
-        rep_act = file_menu.addAction("📂 Berichte-Ordner öffnen")
+        diag_act = file_menu.addAction("🩺 Diagnose & Artefakte")
+        diag_act.triggered.connect(self.open_diagnostics_dialog)
+
+        rep_act = file_menu.addAction("📂 Läufe-Ordner öffnen")
+        rep_act.setToolTip("Öffnet project_data/runs mit Reports, Traces und Videos")
         rep_act.triggered.connect(self.open_reports_folder)
 
         file_menu.addSeparator()
@@ -205,14 +400,16 @@ class MainWindow(QMainWindow):
         dlg = VariablesDialog(self, self.pm)
         dlg.exec_()
 
+    def open_diagnostics_dialog(self):
+        dlg = DiagnosticsSettingsDialog(self, self.pm)
+        dlg.exec_()
+
     def open_reports_folder(self):
-        reports_dir = self.pm.reports_dir
-        if os.path.exists(reports_dir):
-            if sys.platform == "win32":
-                os.startfile(reports_dir)
-            else:
-                import subprocess
-                subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", reports_dir])
+        target = self.pm.runs_dir if os.path.exists(self.pm.runs_dir) else self.pm.reports_dir
+        if not os.path.exists(target):
+            QMessageBox.information(self, "Hinweis", "Es gibt noch keine Läufe.")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(target))
 
     def show_about_dialog(self):
         QMessageBox.about(

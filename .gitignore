@@ -3,4 +3,6 @@ __pycache__
 .venv
 project_data/**.*
 project_data/routines/**.*
+project_data/runs/
 testdata/**.*
+Claude outputs

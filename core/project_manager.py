@@ -4,6 +4,30 @@ import csv
 import re
 from typing import Dict, List, Any, Optional, Tuple
 
+DEFAULT_SETTINGS: Dict[str, Any] = {
+    # "log" = nur protokollieren, "warn" = Warnung im Report (Status bleibt PASS),
+    # "fail" = Schritt wird rot
+    "console_policy": "warn",
+    "network_policy": "warn",
+    "capture_console_warnings": False,
+    "ignore_console": [],
+    "ignore_urls": [
+        r"google-analytics\.com",
+        r"googletagmanager\.com",
+        r"favicon\.ico",
+    ],
+    "check_timeout_ms": 5000,
+
+    # Artefakte pro Lauf
+    "trace_mode": "on_failure",   # "off" | "on_failure" | "always"
+    "video_mode": "off",          # "off" | "on_failure" | "always"
+    "keep_runs": 20,              # 0 = nie aufräumen
+}
+
+POLICY_VALUES = ("log", "warn", "fail")
+ARTIFACT_MODES = ("off", "on_failure", "always")
+
+
 class ProjectManager:
     """Manages project data: Routines, Groups, Tests, Variables, and Datasets."""
     def __init__(self, root_dir: str = "project_data"):
@@ -11,10 +35,12 @@ class ProjectManager:
         self.routines_dir = os.path.join(self.root_dir, "routines")
         self.datasets_dir = os.path.join(self.root_dir, "datasets")
         self.reports_dir = os.path.join(self.root_dir, "reports")
+        self.runs_dir = os.path.join(self.root_dir, "runs")
         self.groups_file = os.path.join(self.root_dir, "groups.json")
         self.tests_file = os.path.join(self.root_dir, "tests.json")
         self.variables_file = os.path.join(self.root_dir, "variables.json")
-        
+        self.settings_file = os.path.join(self.root_dir, "settings.json")
+
         self.ensure_structure()
 
     def ensure_structure(self):
@@ -22,6 +48,7 @@ class ProjectManager:
         os.makedirs(self.routines_dir, exist_ok=True)
         os.makedirs(self.datasets_dir, exist_ok=True)
         os.makedirs(self.reports_dir, exist_ok=True)
+        os.makedirs(self.runs_dir, exist_ok=True)
         
         if not os.path.exists(self.groups_file):
             self._write_json(self.groups_file, [])
@@ -41,7 +68,7 @@ class ProjectManager:
             with open(filepath, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
-            return [] if not filepath.endswith("variables.json") else {}
+            return [] if not filepath.endswith(("variables.json", "settings.json")) else {}
 
     def _write_json(self, filepath: str, data: Any):
         with open(filepath, "w", encoding="utf-8") as f:
@@ -107,11 +134,50 @@ class ProjectManager:
                 return f.read()
         return ""
 
+    # --- Routine-Erwartungen (deklarative Checks) ---
+    def _checks_path(self, routine_id: str) -> str:
+        safe_id = re.sub(r'[^a-zA-Z0-9_]', '_', routine_id.lower())
+        return os.path.join(self.routines_dir, f"{safe_id}.checks.json")
+
+    def get_routine_checks(self, routine_id: str) -> List[Dict[str, Any]]:
+        """Liest die deklarativen Erwartungen einer Routine."""
+        filepath = self._checks_path(routine_id)
+        if not os.path.exists(filepath):
+            return []
+        data = self._read_json(filepath)
+        if not isinstance(data, list):
+            return []
+        # Nur wohlgeformte Einträge zurückgeben
+        checks = []
+        for item in data:
+            if isinstance(item, dict) and item.get("type"):
+                checks.append({
+                    "type": item.get("type", ""),
+                    "target": item.get("target", "") or "",
+                    "value": item.get("value", "") or "",
+                    "enabled": bool(item.get("enabled", True)),
+                })
+        return checks
+
+    def save_routine_checks(self, routine_id: str, checks: List[Dict[str, Any]]):
+        """Speichert die Erwartungen; eine leere Liste entfernt die Datei."""
+        filepath = self._checks_path(routine_id)
+        if not checks:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            return
+        self._write_json(filepath, checks)
+
     def delete_routine(self, routine_id: str):
         filepath = os.path.join(self.routines_dir, f"{routine_id}.py")
         if os.path.exists(filepath):
             os.remove(filepath)
-            
+
+        checks_path = self._checks_path(routine_id)
+        if os.path.exists(checks_path):
+            os.remove(checks_path)
+
+
         # Clean up reference in groups
         groups = self.get_groups()
         updated_groups = []
@@ -186,6 +252,44 @@ class ProjectManager:
 
     def save_variables(self, variables: Dict[str, str]):
         self._write_json(self.variables_file, variables)
+
+    # --- Settings (Diagnose-Policy) ---
+    def get_settings(self) -> Dict[str, Any]:
+        """Einstellungen inkl. Defaults für alles, was nicht gespeichert ist."""
+        stored = self._read_json(self.settings_file)
+        if not isinstance(stored, dict):
+            stored = {}
+
+        settings = dict(DEFAULT_SETTINGS)
+        settings["ignore_console"] = list(DEFAULT_SETTINGS["ignore_console"])
+        settings["ignore_urls"] = list(DEFAULT_SETTINGS["ignore_urls"])
+        settings.update(stored)
+
+        # Sanitizing, damit eine handeditierte Datei nichts kaputt macht
+        for key in ("console_policy", "network_policy"):
+            if settings.get(key) not in POLICY_VALUES:
+                settings[key] = DEFAULT_SETTINGS[key]
+        for key in ("ignore_console", "ignore_urls"):
+            value = settings.get(key)
+            settings[key] = [str(p) for p in value if str(p).strip()] if isinstance(value, list) else []
+        try:
+            settings["check_timeout_ms"] = max(500, int(settings.get("check_timeout_ms", 5000)))
+        except (TypeError, ValueError):
+            settings["check_timeout_ms"] = DEFAULT_SETTINGS["check_timeout_ms"]
+        settings["capture_console_warnings"] = bool(settings.get("capture_console_warnings", False))
+
+        for key in ("trace_mode", "video_mode"):
+            if settings.get(key) not in ARTIFACT_MODES:
+                settings[key] = DEFAULT_SETTINGS[key]
+        try:
+            settings["keep_runs"] = max(0, int(settings.get("keep_runs", 20)))
+        except (TypeError, ValueError):
+            settings["keep_runs"] = DEFAULT_SETTINGS["keep_runs"]
+
+        return settings
+
+    def save_settings(self, settings: Dict[str, Any]):
+        self._write_json(self.settings_file, settings)
 
     # --- Datasets ---
     def get_datasets(self) -> List[Dict[str, Any]]:

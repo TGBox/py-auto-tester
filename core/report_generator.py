@@ -1,11 +1,103 @@
 import os
 import base64
-import time
+import html
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 class ReportGenerator:
     """Generates self-contained HTML execution reports with inline base64 screenshots."""
+
+    @staticmethod
+    def _esc(value: Any) -> str:
+        """
+        Escapes untrusted text (error messages, log output, locator text, page
+        content) before it is interpolated into the HTML report.
+        """
+        return html.escape("" if value is None else str(value), quote=True)
+
+    @staticmethod
+    def _render_checks(checks: List[Dict[str, Any]]) -> str:
+        """Rendert die Erwartungen eines Schritts als Liste."""
+        if not checks:
+            return ""
+        esc = ReportGenerator._esc
+        items = []
+        for c in checks:
+            ok = c.get("status") == "PASS"
+            icon = "✔" if ok else "✘"
+            cls = "check-ok" if ok else "check-bad"
+            kind = c.get("kind", "code")
+            kind_label = {
+                "code": "Code",
+                "declarative": "GUI",
+                "diagnostics": "Diagnose",
+            }.get(kind, kind)
+
+            step_ctx = f'<span class="check-step">{esc(c["step"])}</span>' if c.get("step") else ""
+            message = ""
+            if c.get("message") and not ok:
+                message = f'<div class="check-msg">{esc(c["message"])}</div>'
+
+            items.append(
+                f'<li class="{cls}">'
+                f'<span class="check-icon">{icon}</span>'
+                f'<span class="check-kind">{esc(kind_label)}</span>'
+                f'{step_ctx}'
+                f'<span class="check-label">{esc(c.get("label", ""))}</span>'
+                f'{message}'
+                f'</li>'
+            )
+
+        n_bad = sum(1 for c in checks if c.get("status") != "PASS")
+        title = f"Erwartungen ({len(checks)})"
+        if n_bad:
+            title += f" – {n_bad} nicht erfüllt"
+        open_attr = " open" if n_bad else ""
+        return (
+            f'<details class="sub-block"{open_attr}>'
+            f'<summary>🎯 {title}</summary>'
+            f'<ul class="check-list">{"".join(items)}</ul>'
+            f'</details>'
+        )
+
+    @staticmethod
+    def _render_warnings(warnings: List[Dict[str, Any]]) -> str:
+        """Rendert Konsolen- und Netzwerkbefunde, die den Status nicht rot machen."""
+        if not warnings:
+            return ""
+        esc = ReportGenerator._esc
+
+        console = [w for w in warnings if w.get("kind") in ("console", "pageerror")]
+        network = [w for w in warnings if w.get("kind") == "network"]
+
+        blocks = []
+        if console:
+            rows = []
+            for w in console:
+                loc = f'<div class="warn-loc">{esc(w["location"])}</div>' if w.get("location") else ""
+                rows.append(f'<li>{esc(w.get("message", ""))}{loc}</li>')
+            blocks.append(
+                f'<div class="warn-group"><div class="warn-head">Konsole ({len(console)})</div>'
+                f'<ul>{"".join(rows)}</ul></div>'
+            )
+        if network:
+            rows = []
+            for w in network:
+                status = w.get("status")
+                prefix = f'<span class="warn-status">{esc(status)}</span> ' if status else ""
+                method = f'{esc(w.get("method", ""))} ' if w.get("method") else ""
+                rows.append(f'<li>{prefix}{method}{esc(w.get("url", "")) or esc(w.get("message", ""))}</li>')
+            blocks.append(
+                f'<div class="warn-group"><div class="warn-head">Netzwerk ({len(network)})</div>'
+                f'<ul>{"".join(rows)}</ul></div>'
+            )
+
+        return (
+            f'<details class="sub-block warn-block">'
+            f'<summary>⚠ Warnungen ({len(warnings)})</summary>'
+            f'{"".join(blocks)}'
+            f'</details>'
+        )
 
     @staticmethod
     def _image_to_base64(filepath: str) -> str:
@@ -31,26 +123,40 @@ class ReportGenerator:
         failed_count: int,
         step_results: List[Dict[str, Any]],
         logs: List[str],
-        reports_dir: str
+        reports_dir: str,
+        checks_passed: int = 0,
+        checks_failed: int = 0,
+        warnings_count: int = 0,
+        output_path: Optional[str] = None,
+        videos: Optional[List[str]] = None,
+        screenshot_base: Optional[str] = None,
     ) -> str:
         """
         Generates self-contained HTML report file and returns its absolute filepath.
         """
-        os.makedirs(reports_dir, exist_ok=True)
         timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        file_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"report_{file_timestamp}.html"
-        filepath = os.path.join(reports_dir, filename)
+
+        if output_path:
+            filepath = output_path
+            parent = os.path.dirname(os.path.abspath(filepath))
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+        else:
+            os.makedirs(reports_dir, exist_ok=True)
+            file_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filepath = os.path.join(reports_dir, f"report_{file_timestamp}.html")
 
         total_steps = passed_count + failed_count
         pass_rate = int((passed_count / total_steps * 100)) if total_steps > 0 else 0
+
+        esc = ReportGenerator._esc
 
         # Build Step Table Rows HTML
         table_rows_html = []
         for idx, step in enumerate(step_results, start=1):
             s_name = step.get("name", f"Schritt {idx}")
             s_status = step.get("status", "PASS")
-            s_duration = step.get("duration", 0.0)
+            s_duration = step.get("duration", 0.0) or 0.0
             s_error = step.get("error", "")
             s_shot = step.get("screenshot", "")
 
@@ -59,18 +165,80 @@ class ReportGenerator:
 
             shot_html = ""
             if s_shot:
-                b64_src = ReportGenerator._image_to_base64(s_shot)
+                # Pfade sind relativ zum Laufverzeichnis -> zum Einbetten auflösen
+                shot_abs = s_shot
+                if screenshot_base and not os.path.isabs(s_shot):
+                    shot_abs = os.path.join(screenshot_base, s_shot)
+                b64_src = ReportGenerator._image_to_base64(shot_abs)
                 if b64_src:
-                    shot_html = f'<br/><div class="screenshot-box"><p>🖼️ Fehler-Screenshot:</p><img src="{b64_src}" alt="Screenshot" onclick="openModal(this.src)"/></div>'
+                    shot_html = (
+                        '<div class="screenshot-box"><p>🖼️ Fehler-Screenshot:</p>'
+                        f'<img src="{b64_src}" alt="Screenshot" onclick="openModal(this.src)"/></div>'
+                    )
+
+            trace_html = ""
+            if step.get("trace"):
+                trace_rel = esc(step["trace"])
+                trace_html = (
+                    '<div class="trace-box">'
+                    f'🎬 <a href="{trace_rel}" download>Trace herunterladen</a>'
+                    '<div class="trace-hint">Ansehen mit: '
+                    f'<code>npx playwright show-trace {trace_rel}</code>'
+                    ' — zeigt DOM-Snapshots, Netzwerk und Zeitleiste des Schritts.</div>'
+                    '</div>'
+                )
+
+            # Error text may be a multi-line traceback -> keep line breaks
+            if s_error:
+                error_html = f'<pre class="error-detail">{esc(s_error)}</pre>'
+            elif not step.get("checks") and not step.get("warnings"):
+                error_html = '<span style="color: #64748B;">Keine Fehler</span>'
+            else:
+                error_html = ""
+
+            checks_html = ReportGenerator._render_checks(step.get("checks") or [])
+            warnings_html = ReportGenerator._render_warnings(step.get("warnings") or [])
+
+            # Badge-Spalte: Status + Zähler für Erwartungen und Warnungen
+            step_checks = step.get("checks") or []
+            n_ok = sum(1 for c in step_checks if c.get("status") == "PASS")
+            n_bad = len(step_checks) - n_ok
+            counters = []
+            if n_ok:
+                counters.append(f'<span class="pill pill-ok" title="erfüllte Erwartungen">✔ {n_ok}</span>')
+            if n_bad:
+                counters.append(f'<span class="pill pill-bad" title="nicht erfüllte Erwartungen">✘ {n_bad}</span>')
+            if step.get("warnings"):
+                counters.append(
+                    f'<span class="pill pill-warn" title="Warnungen">⚠ {len(step["warnings"])}</span>'
+                )
+            if step.get("trace"):
+                counters.append(
+                    '<span class="pill pill-trace" title="Trace vorhanden">🎬 Trace</span>'
+                )
+            counters_html = f'<div class="pill-row">{"".join(counters)}</div>' if counters else ""
+
+            url_html = ""
+            if step.get("url"):
+                url_html = f'<div class="step-url" title="URL am Ende des Schritts">{esc(step["url"])}</div>'
 
             row_html = f"""
             <tr>
                 <td><strong>#{idx}</strong></td>
-                <td><strong>{s_name}</strong></td>
-                <td><span class="badge {badge_class}">{badge_icon}</span></td>
+                <td>
+                    <strong>{esc(s_name)}</strong>
+                    {url_html}
+                </td>
+                <td>
+                    <span class="badge {badge_class}">{badge_icon}</span>
+                    {counters_html}
+                </td>
                 <td>{s_duration:.2f}s</td>
                 <td>
-                    {s_error if s_error else '<span style="color: #64748B;">Keine Fehler</span>'}
+                    {error_html}
+                    {checks_html}
+                    {warnings_html}
+                    {trace_html}
                     {shot_html}
                 </td>
             </tr>
@@ -78,7 +246,27 @@ class ReportGenerator:
             table_rows_html.append(row_html)
 
         table_body = "\n".join(table_rows_html)
-        logs_joined = "\n".join(logs)
+        logs_joined = esc("\n".join(logs))
+
+        # Video gehört zur Browser-Session, nicht zu einem einzelnen Schritt
+        video_html = ""
+        if videos:
+            players = []
+            for idx, video in enumerate(videos, start=1):
+                v = esc(video)
+                players.append(
+                    f'<div class="video-item"><div class="video-label">Session {idx}</div>'
+                    f'<video src="{v}" controls preload="metadata"></video>'
+                    f'<div class="video-path"><a href="{v}" download>{v}</a></div></div>'
+                )
+            video_html = (
+                '<details class="video-block">'
+                f'<summary>🎥 Videoaufnahme ({len(videos)})</summary>'
+                '<p class="video-note">Eine Aufnahme pro Browser-Session — sie umfasst '
+                'alle Schritte, die in dieser Session gelaufen sind.</p>'
+                f'<div class="video-grid">{"".join(players)}</div>'
+                '</details>'
+            )
 
         # Full HTML Document
         html_content = f"""<!DOCTYPE html>
@@ -86,7 +274,7 @@ class ReportGenerator:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Test-Report: {target_name}</title>
+    <title>Test-Report: {esc(target_name)}</title>
     <style>
         :root {{
             --bg-color: #0F172A;
@@ -180,6 +368,105 @@ class ReportGenerator:
         tr:hover {{
             background-color: rgba(255,255,255,0.03);
         }}
+        /* Zähler-Pillen in der Statusspalte */
+        .pill-row {{ margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap; }}
+        .pill {{
+            display: inline-block; padding: 1px 7px; border-radius: 9999px;
+            font-size: 11px; font-weight: bold; white-space: nowrap;
+        }}
+        .pill-ok   {{ background: rgba(16,185,129,0.15);  color: var(--pass-color); }}
+        .pill-bad  {{ background: rgba(239,68,68,0.15);   color: var(--fail-color); }}
+        .pill-warn {{ background: rgba(245,158,11,0.15);  color: #F59E0B; }}
+        .pill-trace{{ background: rgba(56,189,248,0.15);  color: var(--accent-blue); }}
+
+        /* Trace-Hinweis pro Schritt */
+        .trace-box {{
+            margin: 0 0 8px 0; padding: 8px 10px; border-radius: 6px;
+            background: #0F172A; border: 1px solid var(--border-color);
+            font-size: 12px;
+        }}
+        .trace-box a {{ color: var(--accent-blue); }}
+        .trace-hint {{ color: var(--text-muted); font-size: 11px; margin-top: 4px; }}
+        .trace-hint code {{
+            font-family: Consolas, monospace; color: #CBD5E1;
+            background: rgba(255,255,255,0.05); padding: 1px 4px; border-radius: 3px;
+            word-break: break-all;
+        }}
+
+        /* Videoaufnahmen */
+        .video-block {{
+            background-color: var(--card-bg); border: 1px solid var(--border-color);
+            border-radius: 8px; padding: 16px; margin-bottom: 24px;
+        }}
+        .video-block summary {{ font-weight: bold; color: var(--accent-blue); cursor: pointer; }}
+        .video-note {{ color: var(--text-muted); font-size: 12px; }}
+        .video-grid {{
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;
+        }}
+        .video-item video {{
+            width: 100%; border-radius: 6px; border: 1px solid var(--border-color);
+            background: #000;
+        }}
+        .video-label {{ font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }}
+        .video-path {{ font-size: 11px; margin-top: 4px; word-break: break-all; }}
+        .video-path a {{ color: var(--accent-blue); font-family: Consolas, monospace; }}
+
+        .step-url {{
+            font-size: 11px; color: var(--text-muted); margin-top: 4px;
+            font-family: Consolas, monospace; word-break: break-all;
+        }}
+
+        /* Erwartungen & Warnungen pro Schritt */
+        .sub-block {{
+            margin: 0 0 8px 0; padding: 8px 10px; border-radius: 6px;
+            background: #0F172A; border: 1px solid var(--border-color);
+        }}
+        .sub-block summary {{ font-size: 12px; }}
+        .warn-block summary {{ color: #F59E0B; }}
+
+        .check-list {{ list-style: none; margin: 8px 0 0 0; padding: 0; font-size: 12px; }}
+        .check-list li {{
+            padding: 4px 0; border-top: 1px solid var(--border-color);
+            display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px;
+        }}
+        .check-list li:first-child {{ border-top: none; }}
+        .check-icon {{ font-weight: bold; }}
+        .check-ok  .check-icon {{ color: var(--pass-color); }}
+        .check-bad .check-icon {{ color: var(--fail-color); }}
+        .check-bad .check-label {{ color: #FCA5A5; }}
+        .check-kind {{
+            font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+            color: var(--text-muted); border: 1px solid var(--border-color);
+            border-radius: 4px; padding: 0 4px;
+        }}
+        .check-step {{ font-size: 11px; color: var(--accent-blue); }}
+        .check-msg {{
+            flex-basis: 100%; margin: 2px 0 0 18px; font-size: 11px;
+            color: var(--text-muted); white-space: pre-wrap; word-break: break-word;
+            font-family: Consolas, monospace;
+        }}
+
+        .warn-group {{ margin-top: 8px; }}
+        .warn-head {{
+            font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+            color: #F59E0B; margin-bottom: 4px;
+        }}
+        .warn-group ul {{ margin: 0; padding-left: 18px; font-size: 12px; color: #CBD5E1; }}
+        .warn-group li {{ padding: 2px 0; word-break: break-word; }}
+        .warn-loc {{
+            font-size: 11px; color: var(--text-muted);
+            font-family: Consolas, monospace; word-break: break-all;
+        }}
+        .warn-status {{ font-weight: bold; color: #F59E0B; }}
+
+        .error-detail {{
+            margin: 0 0 8px 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+            color: #FCA5A5;
+            background-color: #0F172A;
+            border-left: 3px solid var(--fail-color);
+        }}
         .screenshot-box {{
             margin-top: 8px;
         }}
@@ -241,7 +528,7 @@ class ReportGenerator:
             <div class="metrics-grid">
                 <div class="metric-card">
                     <div style="color: var(--text-muted); font-size: 12px;">Ausführungsziel</div>
-                    <div class="val" style="color: var(--accent-blue);">{target_name} ({mode.upper()})</div>
+                    <div class="val" style="color: var(--accent-blue);">{esc(target_name)} ({esc(mode.upper())})</div>
                 </div>
                 <div class="metric-card">
                     <div style="color: var(--text-muted); font-size: 12px;">Erfolgsquote</div>
@@ -253,11 +540,23 @@ class ReportGenerator:
                 </div>
                 <div class="metric-card">
                     <div style="color: var(--text-muted); font-size: 12px;">Browser Engine</div>
-                    <div class="val" style="font-size: 18px;">{browser_engine.upper()}</div>
+                    <div class="val" style="font-size: 18px;">{esc(browser_engine.upper())}</div>
                 </div>
                 <div class="metric-card">
                     <div style="color: var(--text-muted); font-size: 12px;">Geräte-Profil</div>
-                    <div class="val" style="font-size: 18px;">{device_profile}</div>
+                    <div class="val" style="font-size: 18px;">{esc(device_profile)}</div>
+                </div>
+                <div class="metric-card">
+                    <div style="color: var(--text-muted); font-size: 12px;">Erwartungen</div>
+                    <div class="val" style="color: {'#10B981' if checks_failed == 0 else '#EF4444'}">{checks_passed} ✔ / {checks_failed} ✘</div>
+                </div>
+                <div class="metric-card">
+                    <div style="color: var(--text-muted); font-size: 12px;">Warnungen</div>
+                    <div class="val" style="color: {'#94A3B8' if warnings_count == 0 else '#F59E0B'}">{warnings_count}</div>
+                </div>
+                <div class="metric-card">
+                    <div style="color: var(--text-muted); font-size: 12px;">Datensatz</div>
+                    <div class="val" style="font-size: 16px;">{esc(dataset_id) if dataset_id else '—'}</div>
                 </div>
                 <div class="metric-card">
                     <div style="color: var(--text-muted); font-size: 12px;">Zeitstempel</div>
@@ -281,6 +580,8 @@ class ReportGenerator:
                 {table_body}
             </tbody>
         </table>
+
+        {video_html}
 
         <details>
             <summary>📜 Ausführliches Konsolen-Protokoll (Logs anzeigen)</summary>

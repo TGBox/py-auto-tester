@@ -1,15 +1,14 @@
 import os
-import webbrowser
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QCheckBox, QComboBox, QProgressBar, QTextEdit, QTableWidget, QTableWidgetItem,
     QHeaderView, QSplitter, QFrame, QMessageBox
 )
-from PySide6.QtGui import QColor, QPixmap
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QPixmap, QDesktopServices
+from PySide6.QtCore import Qt, QUrl, Signal
 
 from core.project_manager import ProjectManager
-from core.execution_engine import ExecutionEngineWorker
+from gui.execution_worker import ExecutionEngineWorker
 
 class RunnerWidget(QWidget):
     """
@@ -130,11 +129,20 @@ class RunnerWidget(QWidget):
         splitter = QSplitter(Qt.Vertical)
 
         # Step Status Table
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["Routine / Schritt", "Status", "Fehlerdetails"])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(
+            ["Routine / Schritt", "Status", "Erwartungen", "⚠", "Fehlerdetails"]
+        )
+        hdr = self.table.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(4, QHeaderView.Stretch)
+        self.table.horizontalHeaderItem(2).setToolTip("Erfüllte / nicht erfüllte Erwartungen")
+        self.table.horizontalHeaderItem(3).setToolTip(
+            "Warnungen: JS-Konsolenfehler und HTTP-Fehler (ohne Statusauswirkung)"
+        )
         splitter.addWidget(self.table)
 
         # Console & Screenshot area
@@ -226,6 +234,7 @@ class RunnerWidget(QWidget):
         self.worker.log_signal.connect(self.append_log)
         self.worker.step_progress_signal.connect(self.update_progress)
         self.worker.step_status_signal.connect(self.update_step_status)
+        self.worker.step_result_signal.connect(self.update_step_details)
         self.worker.finished_signal.connect(self.on_finished)
         self.worker.screenshot_signal.connect(self.show_screenshot)
         self.worker.start()
@@ -244,18 +253,18 @@ class RunnerWidget(QWidget):
             val = int((current / total) * 100)
             self.progress_bar.setValue(val)
 
-    def update_step_status(self, item_id: str, status: str, error_msg: str):
-        # Check if item exists in table
-        row_found = -1
+    def _find_or_create_row(self, item_id: str) -> int:
         for row in range(self.table.rowCount()):
-            if self.table.item(row, 0).text() == item_id:
-                row_found = row
-                break
+            cell = self.table.item(row, 0)
+            if cell and cell.text() == item_id:
+                return row
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+        self.table.setItem(row, 0, QTableWidgetItem(item_id))
+        return row
 
-        if row_found == -1:
-            row_found = self.table.rowCount()
-            self.table.insertRow(row_found)
-            self.table.setItem(row_found, 0, QTableWidgetItem(item_id))
+    def update_step_status(self, item_id: str, status: str, error_msg: str):
+        row_found = self._find_or_create_row(item_id)
 
         status_item = QTableWidgetItem(status)
         if status == "PASS":
@@ -269,7 +278,54 @@ class RunnerWidget(QWidget):
             status_item.setText("⏳ RUNNING")
 
         self.table.setItem(row_found, 1, status_item)
-        self.table.setItem(row_found, 2, QTableWidgetItem(error_msg))
+
+        # Erste Zeile der Fehlermeldung in die Tabelle, alles in den Tooltip
+        error_item = QTableWidgetItem(error_msg.splitlines()[0] if error_msg else "")
+        if error_msg:
+            error_item.setToolTip(error_msg)
+        self.table.setItem(row_found, 4, error_item)
+
+    def update_step_details(self, result: dict):
+        """Füllt die Erwartungs- und Warnungsspalten nach Abschluss eines Schritts."""
+        row = self._find_or_create_row(result.get("name", ""))
+
+        checks = result.get("checks") or []
+        n_ok = sum(1 for c in checks if c.get("status") == "PASS")
+        n_bad = len(checks) - n_ok
+
+        if checks:
+            checks_item = QTableWidgetItem(f"✔ {n_ok}   ✘ {n_bad}" if n_bad else f"✔ {n_ok}")
+            checks_item.setForeground(QColor("#EF4444") if n_bad else QColor("#10B981"))
+            tip_lines = []
+            for c in checks:
+                icon = "✔" if c.get("status") == "PASS" else "✘"
+                step_ctx = f"[{c['step']}] " if c.get("step") else ""
+                tip_lines.append(f"{icon} {step_ctx}{c.get('label', '')}")
+                if c.get("message") and c.get("status") != "PASS":
+                    tip_lines.append(f"      {c['message']}")
+            checks_item.setToolTip("\n".join(tip_lines))
+        else:
+            checks_item = QTableWidgetItem("—")
+            checks_item.setForeground(QColor("#64748B"))
+            checks_item.setToolTip("Für diese Routine sind keine Erwartungen definiert")
+        checks_item.setTextAlignment(Qt.AlignCenter)
+        self.table.setItem(row, 2, checks_item)
+
+        warnings = result.get("warnings") or []
+        warn_item = QTableWidgetItem(str(len(warnings)) if warnings else "")
+        if warnings:
+            warn_item.setForeground(QColor("#F59E0B"))
+            tip = []
+            for w in warnings[:15]:
+                if w.get("kind") == "network":
+                    tip.append(f"{w.get('status', '')} {w.get('method', '')} {w.get('url', '')}".strip())
+                else:
+                    tip.append(w.get("message", ""))
+            if len(warnings) > 15:
+                tip.append(f"... (+{len(warnings) - 15} weitere)")
+            warn_item.setToolTip("\n".join(tip))
+        warn_item.setTextAlignment(Qt.AlignCenter)
+        self.table.setItem(row, 3, warn_item)
 
     def show_screenshot(self, filepath: str):
         if os.path.exists(filepath):
@@ -291,6 +347,6 @@ class RunnerWidget(QWidget):
 
     def open_latest_report(self):
         if self.latest_report_path and os.path.exists(self.latest_report_path):
-            webbrowser.open(self.latest_report_path)
+            QDesktopServices.openUrl(QUrl.fromLocalFile(self.latest_report_path))
         else:
             QMessageBox.information(self, "Hinweis", "Noch kein Bericht verfügbar.")
