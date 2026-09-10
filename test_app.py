@@ -2,7 +2,7 @@ import os
 import sys
 import pytest
 import shutil
-from core.project_manager import ProjectManager
+from py_auto_tester.core.project_manager import ProjectManager
 
 @pytest.fixture
 def temp_pm(tmp_path):
@@ -35,7 +35,7 @@ def test_project_manager_crud(temp_pm):
     assert len(temp_pm.get_routines()) == 0
 
 def test_execution_engine_speed_modes(temp_pm):
-    from core.models import RunConfig
+    from py_auto_tester.core.models import RunConfig
 
     for speed, expected in (("fastest", 0), ("normal", 300), ("slow", 1000), ("step", 2500)):
         config = RunConfig(mode="routine", item_id="test_rec", speed_mode=speed)
@@ -45,7 +45,7 @@ def test_execution_engine_speed_modes(temp_pm):
     assert RunConfig(mode="routine", item_id="x", speed_mode="turbo").speed_mode == "fastest"
 
 def test_execution_engine_browser_and_device_profiles(temp_pm):
-    from core.models import RunConfig, get_context_options
+    from py_auto_tester.core.models import RunConfig, get_context_options
 
     config = RunConfig(mode="routine", item_id="test_rec",
                        browser_engine="firefox", device_profile="iphone_14")
@@ -70,7 +70,7 @@ def test_execution_engine_browser_and_device_profiles(temp_pm):
 
 def test_context_options_are_copies(temp_pm):
     """Ein Lauf darf das Geraeteprofil nicht global veraendern."""
-    from core.models import get_context_options, DEVICE_PROFILES
+    from py_auto_tester.core.models import get_context_options, DEVICE_PROFILES
 
     opts = get_context_options("iphone_14")
     opts["viewport"]["width"] = 1
@@ -95,12 +95,12 @@ def test_dataset_crud_and_worker_dataset_binding(temp_pm):
     assert row_dicts[1]["ROLE"] == "User"
 
     # Dataset binding check
-    from core.models import RunConfig
+    from py_auto_tester.core.models import RunConfig
     config = RunConfig(mode="routine", item_id="test_rec", dataset_id="test_users")
     assert config.dataset_id == "test_users"
 
 def test_report_generator(temp_pm):
-    from core.report_generator import ReportGenerator
+    from py_auto_tester.core.report_generator import ReportGenerator
 
     report_path = ReportGenerator.generate(
         target_name="demo_routine",
@@ -134,8 +134,8 @@ def test_report_generator(temp_pm):
 @pytest.fixture
 def snippet_runner(temp_pm):
     """Returns (run, logs): run(code, routine_id) -> (success, error_msg)."""
-    from core.models import RunConfig
-    from core.runner import TestRunner
+    from py_auto_tester.core.models import RunConfig
+    from py_auto_tester.core.runner import TestRunner
 
     runner = TestRunner(temp_pm, RunConfig(mode="routine", item_id="dummy"))
     logs = []
@@ -172,22 +172,52 @@ def test_runner_is_free_of_qt(temp_pm):
         "    assert 'nicht erlaubt' in str(e), 'Blocker greift nicht: ' + str(e)\n"
         "else:\n"
         "    raise AssertionError('Blocker greift nicht')\n"
-        "import core.runner, core.models, core.junit_report, cli\n"
+        "from py_auto_tester import cli\n"
+        "from py_auto_tester.core import runner, models, junit_report, run_artifacts\n"
         "leaked = [m for m in sys.modules if m.startswith(('PySide6', 'PyQt'))]\n"
         "assert not leaked, 'Qt wurde importiert: ' + str(leaked)\n"
         "print('ok')\n"
     )
-    proc = subprocess.run([sys.executable, "-c", code],
-                          cwd=os.path.dirname(os.path.abspath(__file__)),
-                          capture_output=True, text=True)
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.path.join(repo_root, "src") + os.pathsep + env.get("PYTHONPATH", "")
+    proc = subprocess.run([sys.executable, "-c", code], cwd=repo_root,
+                          capture_output=True, text=True, env=env)
     assert proc.returncode == 0, proc.stderr
     assert "ok" in proc.stdout
 
 
+def test_gui_layer_does_need_qt(temp_pm):
+    """Gegenprobe: der Qt-Blocker im Test oben ist wirklich wirksam."""
+    import subprocess
+    code = (
+        "import sys\n"
+        "class Blocker:\n"
+        "    def find_spec(self, name, path=None, target=None):\n"
+        "        if name.split('.')[0] == 'PySide6':\n"
+        "            raise ImportError('blockiert')\n"
+        "        return None\n"
+        "sys.meta_path.insert(0, Blocker())\n"
+        "try:\n"
+        "    from py_auto_tester.gui import execution_worker\n"
+        "except ImportError:\n"
+        "    print('erwartet')\n"
+        "else:\n"
+        "    raise AssertionError('GUI-Wrapper kam ohne Qt durch')\n"
+    )
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.path.join(repo_root, "src") + os.pathsep + env.get("PYTHONPATH", "")
+    proc = subprocess.run([sys.executable, "-c", code], cwd=repo_root,
+                          capture_output=True, text=True, env=env)
+    assert proc.returncode == 0, proc.stderr
+    assert "erwartet" in proc.stdout
+
+
 def test_runner_reports_empty_sequence(temp_pm):
     """Regression: dieser Pfad hat den Lauf frueher zum Absturz gebracht."""
-    from core.models import RunConfig
-    from core.runner import TestRunner, CallbackListener
+    from py_auto_tester.core.models import RunConfig
+    from py_auto_tester.core.runner import TestRunner, CallbackListener
 
     finished = []
     runner = TestRunner(
@@ -205,7 +235,7 @@ def test_runner_reports_empty_sequence(temp_pm):
 
 def test_finished_signal_emits_three_arguments(temp_pm):
     """Regression: the 'no routines' path used to emit 2 args into a 3-arg signal."""
-    from gui.execution_worker import ExecutionEngineWorker
+    from py_auto_tester.gui.execution_worker import ExecutionEngineWorker
 
     worker = ExecutionEngineWorker(temp_pm, "test", "does_not_exist")
     received = []
@@ -223,7 +253,7 @@ def test_finished_signal_emits_three_arguments(temp_pm):
 
 def test_worker_exposes_config_to_gui(temp_pm):
     """Die GUI liest mode/item_id/browser_engine direkt am Worker."""
-    from gui.execution_worker import ExecutionEngineWorker
+    from py_auto_tester.gui.execution_worker import ExecutionEngineWorker
 
     worker = ExecutionEngineWorker(
         temp_pm, "group", "grp1", speed_mode="slow",
@@ -346,7 +376,7 @@ def test_snippet_module_level_exception_is_reported(snippet_runner):
 
 def test_report_escapes_untrusted_text(temp_pm):
     """Regression: error text and logs were interpolated into HTML unescaped."""
-    from core.report_generator import ReportGenerator
+    from py_auto_tester.core.report_generator import ReportGenerator
 
     report_path = ReportGenerator.generate(
         target_name='<img src=x onerror=alert(1)>',
@@ -394,7 +424,7 @@ def test_report_escapes_untrusted_text(temp_pm):
 # ---------------------------------------------------------------------------
 
 def test_check_recorder_soft_and_hard(temp_pm):
-    from core.checks import CheckRecorder, build_check_api
+    from py_auto_tester.core.checks import CheckRecorder, build_check_api
 
     logs = []
     recorder = CheckRecorder(log=logs.append)
@@ -419,7 +449,7 @@ def test_check_recorder_soft_and_hard(temp_pm):
 
 
 def test_check_recorder_step_context(temp_pm):
-    from core.checks import CheckRecorder, build_check_api
+    from py_auto_tester.core.checks import CheckRecorder, build_check_api
 
     recorder = CheckRecorder()
     api = build_check_api(recorder)
@@ -437,7 +467,7 @@ def test_check_recorder_step_context(temp_pm):
 
 
 def test_step_context_does_not_swallow_exceptions(temp_pm):
-    from core.checks import CheckRecorder, build_check_api
+    from py_auto_tester.core.checks import CheckRecorder, build_check_api
 
     recorder = CheckRecorder()
     api = build_check_api(recorder)
@@ -449,8 +479,8 @@ def test_step_context_does_not_swallow_exceptions(temp_pm):
 
 
 def test_describe_check_and_diagnostic_evaluation(temp_pm):
-    from core.checks import describe_check, evaluate_check
-    from core.diagnostics import DiagnosticEntry
+    from py_auto_tester.core.checks import describe_check, evaluate_check
+    from py_auto_tester.core.diagnostics import DiagnosticEntry
 
     assert "Terminplaner" in describe_check(
         {"type": "element_visible", "target": "role=link[name=\"Terminplaner\"]"}
@@ -477,7 +507,7 @@ def test_describe_check_and_diagnostic_evaluation(temp_pm):
 
 
 def test_evaluate_check_rejects_incomplete_config(temp_pm):
-    from core.checks import evaluate_check
+    from py_auto_tester.core.checks import evaluate_check
 
     # Fehlende Pflichtfelder werden erkannt, ohne die Seite zu befragen
     r = evaluate_check({"type": "element_visible", "target": ""}, page=None)
@@ -494,7 +524,7 @@ def test_evaluate_check_rejects_incomplete_config(temp_pm):
 
 def test_diagnostics_filters_noise_and_duplicates(temp_pm):
     """Ignore-Muster und Ressourcen-Dubletten muessen greifen."""
-    from core.diagnostics import PageDiagnostics
+    from py_auto_tester.core.diagnostics import PageDiagnostics
 
     class FakeMsg:
         def __init__(self, type_, text, url=""):
@@ -521,7 +551,7 @@ def test_diagnostics_filters_noise_and_duplicates(temp_pm):
 
 
 def test_diagnostics_network_and_severity(temp_pm):
-    from core.diagnostics import PageDiagnostics
+    from py_auto_tester.core.diagnostics import PageDiagnostics
 
     class FakeReq:
         method = "GET"
@@ -551,7 +581,7 @@ def test_diagnostics_network_and_severity(temp_pm):
 
 def test_diagnostics_handler_never_raises(temp_pm):
     """Ein kaputtes Event darf den Testlauf nie abbrechen."""
-    from core.diagnostics import PageDiagnostics
+    from py_auto_tester.core.diagnostics import PageDiagnostics
 
     class Explosive:
         @property
@@ -620,13 +650,13 @@ def test_settings_defaults_and_sanitizing(temp_pm):
     assert settings["ignore_urls"] == []
 
     # Defaults werden nicht global veraendert
-    from core.project_manager import DEFAULT_SETTINGS
+    from py_auto_tester.core.project_manager import DEFAULT_SETTINGS
     assert DEFAULT_SETTINGS["console_policy"] == "warn"
     assert len(DEFAULT_SETTINGS["ignore_urls"]) == 3
 
 
 def test_report_renders_checks_and_warnings(temp_pm):
-    from core.report_generator import ReportGenerator
+    from py_auto_tester.core.report_generator import ReportGenerator
 
     report_path = ReportGenerator.generate(
         target_name="mit_erwartungen", mode="routine", browser_engine="chromium",
@@ -676,7 +706,7 @@ def test_report_renders_checks_and_warnings(temp_pm):
 # ---------------------------------------------------------------------------
 
 def _demo_result():
-    from core.models import RunConfig, RunResult, StepResult
+    from py_auto_tester.core.models import RunConfig, RunResult, StepResult
     return RunResult(
         config=RunConfig(mode="test", item_id="login_flow", dataset_id="demo_users",
                          browser_engine="firefox", device_profile="iphone_14"),
@@ -721,7 +751,7 @@ def test_run_result_counts_and_summary(temp_pm):
 
 
 def test_run_result_success_conditions(temp_pm):
-    from core.models import RunConfig, RunResult, StepResult
+    from py_auto_tester.core.models import RunConfig, RunResult, StepResult
 
     cfg = RunConfig(mode="routine", item_id="x")
     ok = RunResult(config=cfg, steps=[StepResult(name="a", status="PASS")])
@@ -750,7 +780,7 @@ def test_run_result_to_dict_is_json_serializable(temp_pm):
 
 def test_junit_report_structure(temp_pm):
     from xml.etree import ElementTree as ET
-    from core import junit_report
+    from py_auto_tester.core import junit_report
 
     path = junit_report.write(_demo_result(), os.path.join(temp_pm.root_dir, "out", "junit.xml"))
     assert os.path.exists(path)
@@ -789,8 +819,8 @@ def test_junit_report_structure(temp_pm):
 
 def test_junit_report_records_system_error(temp_pm):
     from xml.etree import ElementTree as ET
-    from core import junit_report
-    from core.models import RunConfig, RunResult
+    from py_auto_tester.core import junit_report
+    from py_auto_tester.core.models import RunConfig, RunResult
 
     result = RunResult(config=RunConfig(mode="test", item_id="x"), system_error="Browser weg")
     root = ET.fromstring(junit_report.to_string(result))
@@ -801,7 +831,7 @@ def test_junit_report_records_system_error(temp_pm):
 
 def test_check_failure_summary_indents_multiline_messages(temp_pm):
     """Mehrzeilige Playwright-Meldungen muessen die Einrueckung behalten."""
-    from core.checks import CheckRecorder
+    from py_auto_tester.core.checks import CheckRecorder
 
     recorder = CheckRecorder()
     recorder.record("Element sichtbar", False, kind="declarative",
@@ -815,7 +845,7 @@ def test_check_failure_summary_indents_multiline_messages(temp_pm):
 
 
 def test_cli_parser_and_mode_resolution(temp_pm):
-    import cli
+    from py_auto_tester import cli
 
     parser = cli.build_parser()
     args = parser.parse_args(["run", "login_flow", "--headless", "--junit-xml", "x.xml"])
@@ -846,7 +876,7 @@ def test_cli_parser_and_mode_resolution(temp_pm):
 
 
 def test_cli_exit_codes_are_distinct(temp_pm):
-    import cli
+    from py_auto_tester import cli
     codes = {cli.EXIT_OK, cli.EXIT_FAILED, cli.EXIT_USAGE,
              cli.EXIT_SYSTEM, cli.EXIT_CANCELLED}
     assert len(codes) == 5
@@ -854,14 +884,14 @@ def test_cli_exit_codes_are_distinct(temp_pm):
 
 
 def test_cli_run_rejects_unknown_target(temp_pm, capsys=None):
-    import cli
+    from py_auto_tester import cli
     parser = cli.build_parser()
     args = parser.parse_args(["--project", temp_pm.root_dir, "run", "gibtsnicht", "--headless"])
     assert cli.cmd_run(args) == cli.EXIT_USAGE
 
 
 def test_cli_run_rejects_unknown_dataset(temp_pm):
-    import cli
+    from py_auto_tester import cli
     temp_pm.save_routine("r1", "R1", "", "def execute(page, vars):\n    pass\n")
     parser = cli.build_parser()
     args = parser.parse_args(["--project", temp_pm.root_dir, "run", "r1",
@@ -874,7 +904,7 @@ def test_cli_run_rejects_unknown_dataset(temp_pm):
 # ---------------------------------------------------------------------------
 
 def test_safe_name_sanitizing(temp_pm):
-    from core.run_artifacts import safe_name
+    from py_auto_tester.core.run_artifacts import safe_name
 
     assert safe_name("login flow") == "login_flow"
     assert "/" not in safe_name("a/b/c")
@@ -891,7 +921,7 @@ def test_safe_name_sanitizing(temp_pm):
 
 
 def test_run_artifacts_layout_and_unique_names(temp_pm):
-    from core.run_artifacts import RunArtifacts
+    from py_auto_tester.core.run_artifacts import RunArtifacts
 
     art = RunArtifacts(temp_pm.runs_dir, "test", "login_flow")
     assert os.path.isdir(art.dir)
@@ -922,7 +952,7 @@ def test_run_artifacts_layout_and_unique_names(temp_pm):
 def test_run_artifacts_same_second_gets_own_dir(temp_pm):
     """Regression: zwei Laeufe in derselben Sekunde teilten sich das Verzeichnis."""
     from datetime import datetime
-    from core.run_artifacts import RunArtifacts
+    from py_auto_tester.core.run_artifacts import RunArtifacts
 
     stamp = datetime(2026, 9, 10, 14, 32, 5)
     a1 = RunArtifacts(temp_pm.runs_dir, "test", "gleich", timestamp=stamp)
@@ -936,7 +966,7 @@ def test_run_artifacts_same_second_gets_own_dir(temp_pm):
 
 
 def test_prune_runs_keeps_newest_and_spares_foreign_dirs(temp_pm):
-    from core.run_artifacts import list_runs, prune_runs
+    from py_auto_tester.core.run_artifacts import list_runs, prune_runs
 
     for stamp in ("20260101_120000", "20260102_120000", "20260103_120000",
                   "20260104_120000"):
@@ -979,7 +1009,7 @@ def test_artifact_settings_defaults_and_sanitizing(temp_pm):
 
 
 def test_report_links_trace_and_video(temp_pm):
-    from core.report_generator import ReportGenerator
+    from py_auto_tester.core.report_generator import ReportGenerator
 
     out = os.path.join(temp_pm.runs_dir, "testlauf", "report.html")
     path = ReportGenerator.generate(
@@ -1011,7 +1041,7 @@ def test_report_links_trace_and_video(temp_pm):
 
 def test_report_without_output_path_keeps_old_behaviour(temp_pm):
     """Der alte Aufruf ohne output_path muss weiter funktionieren."""
-    from core.report_generator import ReportGenerator
+    from py_auto_tester.core.report_generator import ReportGenerator
 
     path = ReportGenerator.generate(
         target_name="t", mode="routine", browser_engine="chromium",
@@ -1027,7 +1057,7 @@ def test_report_without_output_path_keeps_old_behaviour(temp_pm):
 
 
 def test_cli_accepts_artifact_options(temp_pm):
-    import cli
+    from py_auto_tester import cli
 
     args = cli.build_parser().parse_args([
         "run", "x", "--headless", "--trace", "always", "--video", "on_failure",

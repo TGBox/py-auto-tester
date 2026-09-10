@@ -1,8 +1,29 @@
-__pycache__
-.pytest_cache
-.venv
-project_data/**.*
-project_data/routines/**.*
-project_data/runs/
-testdata/**.*
-Claude outputs
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Umgebung
+.venv/
+venv/
+
+# --- Projektdaten (lokaler Arbeitsstand) ---
+# Enthält Zugangsdaten in variables.json und Datensätzen, dazu Läufe mit
+# Traces und Videos. Wenn Routinen versioniert werden sollen, ist das hier
+# die Zeile, die aufgeweicht werden muss (z.B. !project_data/routines/).
+project_data/
+
+# Läufe mit Report, Trace, Video, Screenshots — können gross werden
+runs/
+
+# Zugangsdaten: nie einchecken. Vorlage ist variables.example.json.
+variables.json
+settings.json
+
+# Aufnahme-Zwischendateien
+testdata/
+scratch/

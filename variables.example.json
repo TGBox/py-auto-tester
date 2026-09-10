@@ -1,0 +1,6 @@
+{
+  "_hinweis": "Kopie als project_data/variables.json anlegen und ausfuellen. Diese Datei ist die Vorlage und enthaelt keine echten Zugangsdaten.",
+  "BASE_URL": "https://example.com",
+  "USERNAME": "benutzer@example.com",
+  "PASSWORD": ""
+}

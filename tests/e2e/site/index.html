@@ -1,0 +1,15 @@
+<!doctype html><html lang="de"><head><meta charset="utf-8"><title>Anmeldung</title></head>
+<body>
+<h1>Anmeldung</h1>
+<form id="loginForm">
+  <label for="mail">E-Mail</label><input id="mail" type="text" aria-label="E-Mail">
+  <label for="pw">Passwort</label><input id="pw" type="password" aria-label="Passwort">
+  <button type="submit">check</button>
+</form>
+<script>
+document.getElementById('loginForm').addEventListener('submit', function(e){
+  e.preventDefault();
+  if (document.getElementById('mail').value) { location.href = 'home.html'; }
+});
+</script>
+</body></html>

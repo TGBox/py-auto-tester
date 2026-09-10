@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>py-auto-tester — Laufübersicht</title>
+<style>
+    :root {
+        --bg: #0F172A; --card: #1E293B; --ink: #F8FAFC; --muted: #94A3B8;
+        --border: #334155; --accent: #38BDF8;
+    }
+    * { box-sizing: border-box; }
+    body {
+        font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        background: var(--bg); color: var(--ink);
+        margin: 0; padding: 24px; line-height: 1.5;
+    }
+    .container { max-width: 1180px; margin: 0 auto; }
+    header { margin-bottom: 24px; }
+    h1 { font-size: 24px; color: var(--accent); margin: 0 0 4px 0; }
+    .sub { color: var(--muted); font-size: 13px; }
+
+    .tiles {
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+        gap: 16px; margin-bottom: 24px;
+    }
+    .tile {
+        background: var(--card); border: 1px solid var(--border);
+        border-radius: 10px; padding: 14px 16px;
+    }
+    .tile-label { color: var(--muted); font-size: 12px; }
+    .tile-value { font-size: 22px; font-weight: bold; margin-top: 4px; }
+    .tile-sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+    .card {
+        background: var(--card); border: 1px solid var(--border);
+        border-radius: 10px; padding: 18px; margin-bottom: 24px;
+    }
+    .card-head {
+        display: flex; justify-content: space-between; align-items: baseline;
+        gap: 16px; flex-wrap: wrap; margin-bottom: 4px;
+    }
+    .card-head h2 { font-size: 16px; margin: 0; }
+    .hint { color: var(--muted); font-size: 12px; margin: 0 0 8px 0; }
+
+    .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); }
+    .legend-item { display: inline-flex; align-items: center; gap: 5px; }
+    .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+    /* Diagramm: dünne Marken, ruhige Achsen */
+    .trend { width: 100%; height: auto; display: block; }
+    .grid { stroke: var(--border); stroke-width: 1; }
+    .axis { fill: var(--muted); font-size: 10px; }
+    .datalabel { fill: var(--ink); font-size: 11px; font-weight: bold; }
+    .bar .hit { fill: transparent; }
+    .bar:hover .hit { fill: rgba(255,255,255,0.05); }
+    .bar { cursor: default; }
+
+    .table-scroll { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { color: var(--accent); font-weight: 600; font-size: 12px; white-space: nowrap; }
+    tbody tr:hover { background: rgba(255,255,255,0.03); }
+    td.status { white-space: nowrap; }
+    tr.ok td.status { color: #10B981; }
+    tr.bad td.status { color: #EF4444; }
+    tr.incomplete td { color: var(--muted); font-style: italic; }
+    .muted { color: var(--muted); font-size: 11px; }
+    .warn { color: #F59E0B; }
+    a { color: var(--accent); }
+    footer { color: var(--muted); font-size: 11px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>⚡ Laufübersicht</h1>
+        <div class="sub">Erzeugt am 10.09.2026 13:50:31</div>
+    </header>
+
+    <section class="tiles"><div class="tile"><div class="tile-label">Letzter Lauf</div><div class="tile-value" style="color:#10B981">✅ bestanden</div><div class="tile-sub">nur_login · 10.09.2026 13:50</div></div><div class="tile"><div class="tile-label">Läufe erfasst</div><div class="tile-value">7</div><div class="tile-sub">6 mit Ergebnisdaten</div></div><div class="tile"><div class="tile-label">Ø Erfolgsquote</div><div class="tile-value">75%</div><div class="tile-sub">über die letzten 6 Läufe</div></div><div class="tile"><div class="tile-label">Fehlgeschlagen</div><div class="tile-value" style="color:#EF4444">3</div><div class="tile-sub">von 6 bewertbaren Läufen</div></div></section>
+    
+    <section class="card">
+        <div class="card-head">
+            <h2>Erfolgsquote je Lauf</h2>
+            <div class="legend">
+                <span class="legend-item"><span class="swatch" style="background:#10B981"></span>✅ bestanden</span>
+                <span class="legend-item"><span class="swatch" style="background:#EF4444"></span>❌ fehlgeschlagen</span>
+            </div>
+        </div>
+        <p class="hint">Balkenhöhe = Anteil erfolgreicher Schritte, Farbe und Symbol =
+        Gesamtergebnis des Laufs. Älteste links, 6 von 6 Läufen.</p>
+        <svg viewBox="0 0 900 190" class="trend" role="img"
+             aria-label="Erfolgsquote der letzten 6 Läufe. Genaue Werte in der Tabelle darunter.">
+            <line x1="44" y1="156.0" x2="884" y2="156.0" class="grid"/><text x="36" y="160.0" class="axis" text-anchor="end">0%</text><line x1="44" y1="87.0" x2="884" y2="87.0" class="grid"/><text x="36" y="91.0" class="axis" text-anchor="end">50%</text><line x1="44" y1="18.0" x2="884" y2="18.0" class="grid"/><text x="36" y="22.0" class="axis" text-anchor="end">100%</text>
+            <g class="bar"><title>nightly — 10.09. 13:50
+fehlgeschlagen: 1 von 2 Schritten (50%)</title><rect x="44.00" y="18" width="140.00" height="138" class="hit"/><path d="M45.00,156.00 L45.00,91.00 Q45.00,87.00 49.00,87.00 L179.00,87.00 Q183.00,87.00 183.00,91.00 L183.00,156.00 Z" fill="#EF4444"/></g><g class="bar"><title>nur_login — 10.09. 13:50
+bestanden: 1 von 1 Schritten (100%)</title><rect x="184.00" y="18" width="140.00" height="138" class="hit"/><path d="M185.00,156.00 L185.00,22.00 Q185.00,18.00 189.00,18.00 L319.00,18.00 Q323.00,18.00 323.00,22.00 L323.00,156.00 Z" fill="#10B981"/></g><g class="bar"><title>nightly — 10.09. 13:50
+fehlgeschlagen: 1 von 2 Schritten (50%)</title><rect x="324.00" y="18" width="140.00" height="138" class="hit"/><path d="M325.00,156.00 L325.00,91.00 Q325.00,87.00 329.00,87.00 L459.00,87.00 Q463.00,87.00 463.00,91.00 L463.00,156.00 Z" fill="#EF4444"/></g><g class="bar"><title>nur_login — 10.09. 13:50
+bestanden: 1 von 1 Schritten (100%)</title><rect x="464.00" y="18" width="140.00" height="138" class="hit"/><path d="M465.00,156.00 L465.00,22.00 Q465.00,18.00 469.00,18.00 L599.00,18.00 Q603.00,18.00 603.00,22.00 L603.00,156.00 Z" fill="#10B981"/></g><g class="bar"><title>nightly — 10.09. 13:50
+fehlgeschlagen: 1 von 2 Schritten (50%)</title><rect x="604.00" y="18" width="140.00" height="138" class="hit"/><path d="M605.00,156.00 L605.00,91.00 Q605.00,87.00 609.00,87.00 L739.00,87.00 Q743.00,87.00 743.00,91.00 L743.00,156.00 Z" fill="#EF4444"/></g><g class="bar"><title>nur_login — 10.09. 13:50
+bestanden: 1 von 1 Schritten (100%)</title><rect x="744.00" y="18" width="140.00" height="138" class="hit"/><path d="M745.00,156.00 L745.00,22.00 Q745.00,18.00 749.00,18.00 L879.00,18.00 Q883.00,18.00 883.00,22.00 L883.00,156.00 Z" fill="#10B981"/></g>
+            <text x="814.0" y="28.0" class="datalabel" text-anchor="middle">100%</text>
+            <text x="44" y="180" class="axis" text-anchor="start">10.09. 13:50</text><text x="884" y="180" class="axis" text-anchor="end">10.09. 13:50</text>
+        </svg>
+    </section>
+    
+    
+    <section class="card">
+        <div class="card-head"><h2>Alle Läufe</h2></div>
+        <div class="table-scroll">
+        <table>
+            <thead><tr>
+                <th>Zeitpunkt</th><th>Ziel</th><th>Ergebnis</th><th>Schritte</th>
+                <th>Quote</th><th>Warnungen</th><th>Dauer</th><th>Dateien</th>
+            </tr></thead>
+            <tbody><tr class="incomplete"><td>10.09.2026 13:50:30</td><td colspan="6">Lauf ohne lesbare run.json — vermutlich abgebrochen oder noch am Laufen</td><td>20260910_135030_test_nur_login</td></tr><tr class="ok"><td>10.09.2026 13:50:29</td><td><strong>nur_login</strong><div class="muted">test</div></td><td class="status">✅ bestanden</td><td>1/1</td><td>100%</td><td><span class="muted">—</span></td><td>0.6s</td><td><a href="20260910_135029_test_nur_login/report.html">Report</a> · <span class="muted">—</span></td></tr><tr class="bad"><td>10.09.2026 13:50:28</td><td><strong>nightly</strong><div class="muted">test</div></td><td class="status">❌ fehlgeschlagen</td><td>1/2</td><td>50%</td><td><span class="muted">—</span></td><td>1.5s</td><td><a href="20260910_135028_test_nightly/report.html">Report</a> · <a href="20260910_135028_test_nightly/trace/">Trace</a></td></tr><tr class="ok"><td>10.09.2026 13:50:27</td><td><strong>nur_login</strong><div class="muted">test</div></td><td class="status">✅ bestanden</td><td>1/1</td><td>100%</td><td><span class="muted">—</span></td><td>0.6s</td><td><a href="20260910_135027_test_nur_login/report.html">Report</a> · <span class="muted">—</span></td></tr><tr class="bad"><td>10.09.2026 13:50:25</td><td><strong>nightly</strong><div class="muted">test</div></td><td class="status">❌ fehlgeschlagen</td><td>1/2</td><td>50%</td><td><span class="muted">—</span></td><td>1.5s</td><td><a href="20260910_135025_test_nightly/report.html">Report</a> · <a href="20260910_135025_test_nightly/trace/">Trace</a></td></tr><tr class="ok"><td>10.09.2026 13:50:24</td><td><strong>nur_login</strong><div class="muted">test</div></td><td class="status">✅ bestanden</td><td>1/1</td><td>100%</td><td><span class="muted">—</span></td><td>0.7s</td><td><a href="20260910_135024_test_nur_login/report.html">Report</a> · <span class="muted">—</span></td></tr><tr class="bad"><td>10.09.2026 13:50:21</td><td><strong>nightly</strong><div class="muted">test</div></td><td class="status">❌ fehlgeschlagen</td><td>1/2</td><td>50%</td><td><span class="muted">—</span></td><td>3.1s</td><td><a href="20260910_135021_test_nightly/report.html">Report</a> · <a href="20260910_135021_test_nightly/trace/">Trace</a></td></tr></tbody>
+        </table>
+        </div>
+    </section>
+    
+
+    <footer>
+        Ein Verzeichnis je Lauf mit Report, run.json, junit.xml und Artefakten.
+        Wie viele behalten werden, steuert „Läufe aufbewahren" in den
+        Diagnose-Einstellungen.
+    </footer>
+</div>
+</body>
+</html>

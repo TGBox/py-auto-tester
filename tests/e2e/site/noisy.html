@@ -1,0 +1,11 @@
+<!doctype html><html lang="de"><head><meta charset="utf-8"><title>Noisy</title></head>
+<body>
+<h1>Seite mit Problemen</h1>
+<img src="fehlt-nicht-vorhanden.png" alt="kaputt">
+<script>
+console.error('TypeError: Cannot read properties of undefined (reading "termin")');
+console.warn('Synchronous XHR ist veraltet');
+fetch('api-kaputt.json').then(function(){});
+setTimeout(function(){ throw new Error('Unbehandelter Fehler im Timer'); }, 10);
+</script>
+</body></html>
